@@ -52,9 +52,7 @@ if "logged_in" not in st.session_state:
 if not st.session_state["logged_in"]:
     st.markdown("""
     <div style='text-align: center; margin-top: 50px; margin-bottom: 40px;'>
-        <img src="https://www.fremec.com.ar/img/logo.svg" style="height: 60px; margin-bottom: 5px;">
-        <h1 style='color: #2c395a; font-size: 48px; font-weight: 800; margin-bottom: 0px;'>FREMEC <span style='font-size: 24px; font-weight: normal;'>S.A.</span></h1>
-        <h4 style='color: #64748b; font-style: italic; margin-top: -5px;'>cables de comando</h4>
+        <img src="https://www.fremec.com.ar/img/logo.svg" style="height: 180px; margin-bottom: 5px;">
         <h3 style='color: #64748b; margin-top: 30px;'>Portal de Empleados</h3>
     </div>
     """, unsafe_allow_html=True)
@@ -135,11 +133,9 @@ st.markdown("""
 with st.sidebar:
     st.markdown("""
         <div style="margin-bottom: 40px; margin-top: 20px; padding: 0 20px;">
-            <div style="display: flex; align-items: center; gap: 10px;">
-                <img src="https://www.fremec.com.ar/img/logo.svg" style="height: 40px;">
-                <span style="color: white; font-weight: 800; font-size: 28px; font-style: italic;">FREMEC <span style="font-size: 14px; font-weight: normal; font-style: normal;">S.A.</span></span>
+            <div style="display: flex; justify-content: flex-start;">
+                <img src="https://www.fremec.com.ar/img/logo.svg" style="width: 100%; max-width: 250px;">
             </div>
-            <div style="color: #94a3b8; font-size: 14px; font-style: italic; margin-top: 2px;">cables de comando</div>
             <div style="font-size: 13px; color: #a1a1aa; margin-top: 15px;">👤 Logueado: """ + nombre_activo + """</div>
         </div>
     """, unsafe_allow_html=True)
