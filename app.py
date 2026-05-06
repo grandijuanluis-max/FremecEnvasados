@@ -53,7 +53,7 @@ if not st.session_state["logged_in"]:
     st.markdown("""
     <div style='display: flex; flex-direction: column; align-items: center; margin-top: 50px; margin-bottom: 40px;'>
         <div style='display: flex; align-items: center; justify-content: center;'>
-            <img src="https://www.fremec.com.ar/img/logo.svg" style="height: 130px; margin-right: 20px;">
+            <img src="https://www.fremec.com.ar/img/logo.svg" style="height: 155px; margin-right: 5px;">
             <div style='text-align: left; display: flex; flex-direction: column; justify-content: center;'>
                 <span style='color: #0056b3; font-size: 80px; font-weight: 700; line-height: 0.9;'>FREMEC</span>
                 <span style='color: #64748b; font-size: 14px; margin-top: 5px; font-weight: 500;'>Cable de comandos</span>
@@ -104,7 +104,6 @@ def logout():
     registrar_auditoria(nombre_activo, "sistema", "LOGOUT", "Usuario cerró sesión.")
     st.session_state["logged_in"] = False
     st.session_state["user_data"] = None
-    st.rerun()
 
 # -----------------
 # ESTILOS UI NATIVA 
@@ -285,10 +284,25 @@ elif nav_selection == "Envasado":
                 
                 with col_e: st.text_input("Envasador Responsable", value=nombre_activo, disabled=True)
                 
-                r_obs = st.text_area("Observaciones del turno (Opcional)")
+                r_obs = st.text_area("Observaciones del turno")
                 
                 if st.form_submit_button("Guardar en Nube"):
-                    if r_cantidad > 0:
+                    if not r_obs or str(r_obs).strip() == "":
+                        st.error("No se ingresaron observaciones, por favor ingreselas para poder guardar")
+                        st.components.v1.html("""
+                            <script>
+                                const doc = window.parent.document;
+                                const alerts = doc.querySelectorAll('[data-testid="stAlert"]');
+                                if(alerts.length > 0) {
+                                    const lastAlert = alerts[alerts.length - 1];
+                                    const hideAlert = () => { lastAlert.style.display = 'none'; };
+                                    setTimeout(hideAlert, 3000);
+                                    doc.addEventListener('mousemove', hideAlert, {once: true});
+                                    doc.addEventListener('keydown', hideAlert, {once: true});
+                                }
+                            </script>
+                        """, height=0)
+                    elif r_cantidad > 0:
                         fecha_str = r_fecha.strftime("%d/%m/%Y")
                         data = {"nombre_envasador": nombre_activo, "fecha": fecha_str, "cantidad": r_cantidad, "observaciones": r_obs}
                         try:
