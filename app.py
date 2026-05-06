@@ -398,26 +398,29 @@ elif nav_selection == "BI":
             
             # Formulario de filtros encajados
             with col1:
-                idx_yr = years_avail.index(anio_actual) if anio_actual in years_avail else 0
-                sel_year = st.selectbox("Año", years_avail, index=idx_yr)
+                sel_years = st.multiselect("Año", years_avail, default=[anio_actual], placeholder="Todos...")
             with col2:
                 dicc_meses = {1:"enero", 2:"febrero", 3:"marzo", 4:"abril", 5:"mayo", 6:"junio", 7:"julio", 8:"agosto", 9:"septiembre", 10:"octubre", 11:"noviembre", 12:"diciembre"}
                 rev_meses = {v:k for k,v in dicc_meses.items()}
-                idx_mo = months_avail.index(mes_actual) if mes_actual in months_avail else 0
-                sel_month_str = st.selectbox("Mes", [dicc_meses[m] for m in months_avail], index=idx_mo)
-                sel_month = rev_meses[sel_month_str]
+                meses_nombres = [dicc_meses[m] for m in months_avail]
+                sel_months_str = st.multiselect("Mes", meses_nombres, default=[dicc_meses[mes_actual]], placeholder="Todos...")
+                sel_months = [rev_meses[m] for m in sel_months_str]
                 
             envasadores_unicos = sorted(df_bi['nombre_envasador'].unique().tolist())
             with col3:
-                sel_envasadores = st.multiselect("Envasador", envasadores_unicos, default=envasadores_unicos)
+                sel_envasadores = st.multiselect("Envasador", envasadores_unicos, default=[], placeholder="Todos los envasadores...")
                 
             # Intersección de cortes del Dataframe
-            df_filtered = df_bi[(df_bi['year'] == sel_year) & (df_bi['month'] == sel_month)]
+            df_filtered = df_bi.copy()
+            if sel_years:
+                df_filtered = df_filtered[df_filtered['year'].isin(sel_years)]
+            if sel_months:
+                df_filtered = df_filtered[df_filtered['month'].isin(sel_months)]
             if sel_envasadores:
                 df_filtered = df_filtered[df_filtered['nombre_envasador'].isin(sel_envasadores)]
                 
             if df_filtered.empty:
-                st.warning(f"No hay registros de producción para el mes de {sel_month_str} del {sel_year} correspondientes al equipo logueado o filtrado.")
+                st.warning("No hay registros de producción para los filtros seleccionados.")
             else:
                 st.markdown("---")
                 # 1. ARMADO DE LA TABLA PIVOT POR DIA EXACTA (Excel style)
