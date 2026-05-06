@@ -51,9 +51,15 @@ if "logged_in" not in st.session_state:
 # -----------------
 if not st.session_state["logged_in"]:
     st.markdown("""
-    <div style='text-align: center; margin-top: 50px; margin-bottom: 40px;'>
-        <img src="https://www.fremec.com.ar/img/logo.svg" style="height: 180px; margin-bottom: 5px;">
-        <h3 style='color: #64748b; margin-top: 30px;'>Portal de Empleados</h3>
+    <div style='display: flex; flex-direction: column; align-items: center; margin-top: 50px; margin-bottom: 40px;'>
+        <div style='display: flex; align-items: center; justify-content: center;'>
+            <img src="https://www.fremec.com.ar/img/logo.svg" style="height: 130px; margin-right: 20px;">
+            <div style='text-align: left; display: flex; flex-direction: column; justify-content: center;'>
+                <span style='color: #0056b3; font-size: 80px; font-weight: 700; line-height: 0.9;'>FREMEC</span>
+                <span style='color: #64748b; font-size: 14px; margin-top: 5px; font-weight: 500;'>Cable de comandos</span>
+            </div>
+        </div>
+        <h3 style='color: #64748b; margin-top: 40px;'>Portal de Empleados</h3>
     </div>
     """, unsafe_allow_html=True)
     
@@ -110,6 +116,13 @@ st.markdown("""
     
     [data-testid="stSidebar"] { background-color: #2c395a; color: #ffffff; }
     [data-testid="stSidebar"]::before { border-right: none; }
+    
+    /* Estilo para el botón Cerrar Sesión del sidebar */
+    [data-testid="stSidebar"] button { color: #2c395a !important; background-color: #ffffff !important; border-color: #ffffff !important; }
+    [data-testid="stSidebar"] button p { color: #2c395a !important; font-weight: 600 !important; }
+    [data-testid="stSidebar"] button:hover { background-color: #e2e8f0 !important; border-color: #e2e8f0 !important; }
+    [data-testid="stSidebar"] button:hover p { color: #2c395a !important; }
+
     div[role="radiogroup"] label p { color: #ffffff !important; font-size: 16px; }
     div[role="radiogroup"] { color: #ffffff !important; }
     
