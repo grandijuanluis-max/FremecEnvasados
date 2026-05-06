@@ -203,7 +203,6 @@ if nav_selection == "Gestión":
                         supabase.table("usuarios_envasadores").insert(data).execute()
                         registrar_auditoria(nombre_activo, "usuarios_envasadores", "ALTA", f"El admin creó al usuario: {u_nombre}.")
                         st.success("Usuario registrado.")
-                        st.rerun() 
                     except Exception as e:
                         st.error(f"Error insertando: {e}")
     
@@ -283,7 +282,6 @@ elif nav_selection == "Envasado":
                             supabase.table("registros_envasado").insert(data).execute()
                             registrar_auditoria(nombre_activo, "registros_envasado", "ALTA", f"Cargó {r_cantidad} unds producidas.")
                             st.success("Guardado ok.")
-                            st.rerun()
                         except Exception as e:
                              st.error(f"Error al subir: {e}")
                     else:
