@@ -525,10 +525,19 @@ elif nav_selection == "BI":
                 .custom-table tbody tr:hover td {
                     background-color: #f1f5f9;
                 }
+                /* Fix para forzar color oscuro y contraste en los radio buttons */
+                div[role="radiogroup"] label p {
+                    color: #0f172a !important;
+                    font-weight: 600 !important;
+                }
                 </style>
                 """
                 
-                st.markdown(custom_css + f'<div class="table-container">{html_table}</div>', unsafe_allow_html=True)
+                # Eliminamos la indentación (espacios al inicio) para que Markdown no lo tome como un bloque de código (code block)
+                html_str = custom_css + f'<div class="table-container">\n{html_table}\n</div>'
+                html_str_clean = "\n".join([line.lstrip() for line in html_str.split("\n")])
+                
+                st.markdown(html_str_clean, unsafe_allow_html=True)
                 
                 # Agregamos un botón de descarga para no perder la exportación a Excel/CSV
                 csv_data = pivot.to_csv().encode('utf-8')
