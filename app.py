@@ -485,12 +485,12 @@ elif nav_selection == "BI":
                 }
                 /* Títulos superiores (Año, Mes, Día) */
                 .custom-table thead th {
-                    background-color: #1e293b !important; /* Fondo oscuro */
-                    color: #f8fafc !important; /* Letras claras */
+                    background-color: #004b99 !important; /* Azul oscuro corporativo similar al logo Fremec */
+                    color: #ffffff !important; /* Letras blancas para contraste */
                     font-style: italic; /* Inclinadas */
                     font-weight: 600;
                     padding: 10px 8px;
-                    border: 1px solid #334155;
+                    border: 1px solid #003366;
                     text-align: center;
                     white-space: nowrap;
                 }
@@ -512,7 +512,7 @@ elif nav_selection == "BI":
                     position: sticky;
                     left: 0;
                     z-index: 2;
-                    background-color: #0f172a !important; /* Aún más oscuro para diferenciar la esquina */
+                    background-color: #003366 !important; /* Azul más oscuro para diferenciar la esquina superior izquierda */
                 }
                 .custom-table tbody td {
                     padding: 8px 10px;
@@ -558,33 +558,33 @@ elif nav_selection == "BI":
                     horizontal=True
                 )
                 
-                # Preparar la columna de agrupación de tiempo para que Plotly mantenga la línea temporal
+                # Preparar la columna de agrupación de tiempo (como texto para que Plotly no estire las barras)
+                # Ordenamos cronológicamente antes de convertir a texto para que Plotly respete el orden visual
+                df_filtered = df_filtered.sort_values('fecha_dt')
+                
                 if agg_level == "Día":
-                    group_col = 'fecha_dt'
+                    group_col = 'fecha_str'
+                    df_filtered['fecha_str'] = df_filtered['fecha_dt'].dt.strftime("%d/%m/%Y")
                     x_title = "Fecha"
-                    tick_format = "%d/%m/%Y"
                 elif agg_level == "Mes":
-                    # Forzamos al día 1 de cada mes para agrupar cronológicamente
-                    df_filtered['mes_dt'] = pd.to_datetime(df_filtered['year'].astype(str) + '-' + df_filtered['month'].astype(str) + '-01')
-                    group_col = 'mes_dt'
+                    group_col = 'mes_str'
+                    df_filtered['mes_str'] = df_filtered['fecha_dt'].dt.strftime("%m/%Y")
                     x_title = "Mes"
-                    tick_format = "%m/%Y"
                 else: # Año
-                    # Forzamos al 1 de enero de cada año
-                    df_filtered['año_dt'] = pd.to_datetime(df_filtered['year'].astype(str) + '-01-01')
-                    group_col = 'año_dt'
+                    group_col = 'año_str'
+                    df_filtered['año_str'] = df_filtered['fecha_dt'].dt.strftime("%Y")
                     x_title = "Año"
-                    tick_format = "%Y"
                 
                 st.markdown(f"#### Producción Total de la Empresa (Por {agg_level})")
                 # Gráfico 1: Total Empresa
-                company_sum = df_filtered.groupby(group_col)['cantidad'].sum().reset_index()
+                # Al hacer groupby, sort=False asegura que Pandas mantenga el orden cronológico que forzamos arriba
+                company_sum = df_filtered.groupby(group_col, sort=False)['cantidad'].sum().reset_index()
                 
                 fig1 = px.bar(company_sum, x=group_col, y='cantidad')
                 fig1.update_layout(
                     xaxis_title=x_title,
                     yaxis_title="Cantidad Total",
-                    xaxis=dict(tickformat=tick_format),
+                    xaxis=dict(type='category'), # Forzar eje categórico para evitar el estiramiento de barras de fechas
                     plot_bgcolor='rgba(0,0,0,0)',
                     paper_bgcolor='rgba(0,0,0,0)',
                     margin=dict(l=20, r=20, t=30, b=20)
@@ -594,13 +594,13 @@ elif nav_selection == "BI":
                 
                 st.markdown(f"#### Comparativa por Envasador (Por {agg_level})")
                 # Gráfico 2: Comparativa Envasadores
-                env_sum = df_filtered.groupby([group_col, 'nombre_envasador'])['cantidad'].sum().reset_index()
+                env_sum = df_filtered.groupby([group_col, 'nombre_envasador'], sort=False)['cantidad'].sum().reset_index()
                 
                 fig2 = px.bar(env_sum, x=group_col, y='cantidad', color='nombre_envasador', barmode='group')
                 fig2.update_layout(
                     xaxis_title=x_title,
                     yaxis_title="Cantidad Producida",
-                    xaxis=dict(tickformat=tick_format),
+                    xaxis=dict(type='category'), # Forzar eje categórico
                     plot_bgcolor='rgba(0,0,0,0)',
                     paper_bgcolor='rgba(0,0,0,0)',
                     margin=dict(l=20, r=20, t=30, b=20),
