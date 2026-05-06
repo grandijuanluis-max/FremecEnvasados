@@ -596,7 +596,11 @@ elif nav_selection == "BI":
                 # Gráfico 2: Comparativa Envasadores
                 env_sum = df_filtered.groupby([group_col, 'nombre_envasador'], sort=False)['cantidad'].sum().reset_index()
                 
-                fig2 = px.bar(env_sum, x=group_col, y='cantidad', color='nombre_envasador', barmode='group')
+                # Calculamos el total global por envasador para ordenarlos de mayor a menor
+                # de izquierda a derecha en las barras y en la leyenda
+                ranking_envasadores = env_sum.groupby('nombre_envasador')['cantidad'].sum().sort_values(ascending=False).index.tolist()
+                
+                fig2 = px.bar(env_sum, x=group_col, y='cantidad', color='nombre_envasador', barmode='group', category_orders={'nombre_envasador': ranking_envasadores})
                 fig2.update_layout(
                     xaxis_title=x_title,
                     yaxis_title="Cantidad Producida",
