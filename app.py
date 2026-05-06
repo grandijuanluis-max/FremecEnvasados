@@ -458,28 +458,147 @@ elif nav_selection == "BI":
                 # Renombrar el índice para que se renderice como "Envasadores"
                 pivot.index.name = "Envasadores"
                 
-                # Desplegamos tabla con MultiIndex nativo de Streamlit (Agrupa "Mayo 2026" arriba y los Días abajo)
-                st.dataframe(pivot, use_container_width=True)
+                # Aplicamos formato de miles para la vista HTML
+                if hasattr(pivot, 'map'):
+                    pivot_fmt = pivot.map(lambda x: f"{x:,.0f}" if pd.notnull(x) and x != 0 else "0")
+                else:
+                    pivot_fmt = pivot.applymap(lambda x: f"{x:,.0f}" if pd.notnull(x) and x != 0 else "0")
                 
-                # 2. ARMADO DEL GRÁFICO AZUL INFERIOR
+                # Convertimos a HTML para inyectar CSS y lograr un diseño más Premium y personalizado
+                html_table = pivot_fmt.to_html(classes="custom-table")
+                
+                custom_css = """
+                <style>
+                .table-container {
+                    overflow-x: auto;
+                    width: 100%;
+                    border: 1px solid #cbd5e1;
+                    border-radius: 6px;
+                    margin-bottom: 10px;
+                    box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1);
+                }
+                .custom-table {
+                    width: 100%;
+                    border-collapse: collapse;
+                    font-family: 'Segoe UI', sans-serif;
+                    font-size: 13px;
+                }
+                /* Títulos superiores (Año, Mes, Día) */
+                .custom-table thead th {
+                    background-color: #1e293b !important; /* Fondo oscuro */
+                    color: #f8fafc !important; /* Letras claras */
+                    font-style: italic; /* Inclinadas */
+                    font-weight: 600;
+                    padding: 10px 8px;
+                    border: 1px solid #334155;
+                    text-align: center;
+                    white-space: nowrap;
+                }
+                /* Columna lateral izquierda (Envasadores) */
+                .custom-table tbody th {
+                    background-color: #f8fafc !important;
+                    color: #0f172a;
+                    font-weight: 600;
+                    padding: 8px 12px;
+                    border: 1px solid #cbd5e1;
+                    position: sticky;
+                    left: 0;
+                    z-index: 1;
+                    text-align: left;
+                    white-space: nowrap;
+                }
+                /* Intersección superior izquierda (Período / Día) */
+                .custom-table thead th:first-child {
+                    position: sticky;
+                    left: 0;
+                    z-index: 2;
+                    background-color: #0f172a !important; /* Aún más oscuro para diferenciar la esquina */
+                }
+                .custom-table tbody td {
+                    padding: 8px 10px;
+                    border: 1px solid #e2e8f0;
+                    text-align: right;
+                    background-color: #ffffff;
+                    color: #334155;
+                    min-width: 45px;
+                }
+                .custom-table tbody tr:hover td {
+                    background-color: #f1f5f9;
+                }
+                </style>
+                """
+                
+                st.markdown(custom_css + f'<div class="table-container">{html_table}</div>', unsafe_allow_html=True)
+                
+                # Agregamos un botón de descarga para no perder la exportación a Excel/CSV
+                csv_data = pivot.to_csv().encode('utf-8')
+                st.download_button(
+                    label="📥 Descargar Grilla en CSV",
+                    data=csv_data,
+                    file_name="grilla_produccion.csv",
+                    mime="text/csv",
+                )
+                
+                # 2. SECCIÓN DE GRÁFICOS
                 st.markdown("---")
-                st.markdown("#### Suma de Cantidad Producida por Fecha")
                 
-                # Condensar a la agrupacion por fecha (soporta multiples meses de corrido sin pisarse)
-                daily_sum = df_filtered.groupby('fecha_dt')['cantidad'].sum().reset_index()
+                # Controles de los gráficos
+                agg_level = st.radio(
+                    "📊 Agrupar gráficos por:",
+                    options=["Día", "Mes", "Año"],
+                    horizontal=True
+                )
                 
-                fig = px.bar(daily_sum, x='fecha_dt', y='cantidad')
-                fig.update_layout(
-                    xaxis_title="Fecha",
+                # Preparar la columna de agrupación de tiempo para que Plotly mantenga la línea temporal
+                if agg_level == "Día":
+                    group_col = 'fecha_dt'
+                    x_title = "Fecha"
+                    tick_format = "%d/%m/%Y"
+                elif agg_level == "Mes":
+                    # Forzamos al día 1 de cada mes para agrupar cronológicamente
+                    df_filtered['mes_dt'] = pd.to_datetime(df_filtered['year'].astype(str) + '-' + df_filtered['month'].astype(str) + '-01')
+                    group_col = 'mes_dt'
+                    x_title = "Mes"
+                    tick_format = "%m/%Y"
+                else: # Año
+                    # Forzamos al 1 de enero de cada año
+                    df_filtered['año_dt'] = pd.to_datetime(df_filtered['year'].astype(str) + '-01-01')
+                    group_col = 'año_dt'
+                    x_title = "Año"
+                    tick_format = "%Y"
+                
+                st.markdown(f"#### Producción Total de la Empresa (Por {agg_level})")
+                # Gráfico 1: Total Empresa
+                company_sum = df_filtered.groupby(group_col)['cantidad'].sum().reset_index()
+                
+                fig1 = px.bar(company_sum, x=group_col, y='cantidad')
+                fig1.update_layout(
+                    xaxis_title=x_title,
                     yaxis_title="Cantidad Total",
-                    xaxis=dict(tickformat="%d/%m/%Y"), # Mostrar fechas legibles
+                    xaxis=dict(tickformat=tick_format),
                     plot_bgcolor='rgba(0,0,0,0)',
                     paper_bgcolor='rgba(0,0,0,0)',
                     margin=dict(l=20, r=20, t=30, b=20)
                 )
-                fig.update_traces(marker_color='#2196F3') # Azul nativo de PowerBI/Excel dictado por la imagen
+                fig1.update_traces(marker_color='#2196F3') # Azul corporativo
+                st.plotly_chart(fig1, use_container_width=True)
                 
-                st.plotly_chart(fig, use_container_width=True)
+                st.markdown(f"#### Comparativa por Envasador (Por {agg_level})")
+                # Gráfico 2: Comparativa Envasadores
+                env_sum = df_filtered.groupby([group_col, 'nombre_envasador'])['cantidad'].sum().reset_index()
+                
+                fig2 = px.bar(env_sum, x=group_col, y='cantidad', color='nombre_envasador', barmode='group')
+                fig2.update_layout(
+                    xaxis_title=x_title,
+                    yaxis_title="Cantidad Producida",
+                    xaxis=dict(tickformat=tick_format),
+                    plot_bgcolor='rgba(0,0,0,0)',
+                    paper_bgcolor='rgba(0,0,0,0)',
+                    margin=dict(l=20, r=20, t=30, b=20),
+                    legend_title_text='Envasadores',
+                    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1) # Leyenda horizontal arriba para más limpieza
+                )
+                st.plotly_chart(fig2, use_container_width=True)
         else:
             st.info("La plataforma no posee datos matemáticos suficientes aún para nutrir el modelo BI.")
     except Exception as e:
