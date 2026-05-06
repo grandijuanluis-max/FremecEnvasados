@@ -53,8 +53,10 @@ if not st.session_state["logged_in"]:
     st.markdown("""
     <div style='display: flex; flex-direction: column; align-items: center; margin-top: 50px; margin-bottom: 40px;'>
         <div style='display: flex; align-items: center; justify-content: center;'>
-            <img src="https://www.fremec.com.ar/img/logo.svg" style="height: 190px; margin-right: -90px; position: relative; z-index: 10;">
-            <div style='text-align: left; display: flex; flex-direction: column; justify-content: center; font-family: "Segoe UI", sans-serif; position: relative; z-index: 1;'>
+            <div style="width: 170px; height: 190px; overflow: hidden; display: flex; justify-content: flex-start; margin-right: 15px;">
+                <img src="https://www.fremec.com.ar/img/logo.svg" style="height: 190px; max-width: none;">
+            </div>
+            <div style='text-align: left; display: flex; flex-direction: column; justify-content: center; font-family: "Segoe UI", sans-serif;'>
                 <span style='color: #0056b3; font-size: 80px; font-weight: 700; line-height: 0.9;'>FREMEC</span>
                 <span style='color: #64748b; font-size: 14px; margin-top: 5px; font-weight: 500;'>Cable de comandos</span>
             </div>
