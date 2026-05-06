@@ -413,11 +413,11 @@ elif nav_selection == "BI":
             # Intersección de cortes del Dataframe
             df_filtered = df_bi.copy()
             
-            # Filtros estrictos para Año y Mes: si vacían el filtro, no se muestra nada.
-            df_filtered = df_filtered[df_filtered['year'].isin(sel_years)]
-            df_filtered = df_filtered[df_filtered['month'].isin(sel_months)]
-            
-            # Filtro ágil para Envasadores: si está vacío, se asume "Todos"
+            # Filtros ágiles: si el campo está vacío, significa "Todos"
+            if sel_years:
+                df_filtered = df_filtered[df_filtered['year'].isin(sel_years)]
+            if sel_months:
+                df_filtered = df_filtered[df_filtered['month'].isin(sel_months)]
             if sel_envasadores:
                 df_filtered = df_filtered[df_filtered['nombre_envasador'].isin(sel_envasadores)]
                 
