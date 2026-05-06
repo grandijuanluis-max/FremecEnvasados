@@ -424,31 +424,39 @@ elif nav_selection == "BI":
             else:
                 st.markdown("---")
                 # 1. ARMADO DE LA TABLA PIVOT POR DIA EXACTA (Excel style)
-                # Filas: Envasador | Columnas: Día numérico | Cruce: Suma
-                pivot = pd.pivot_table(df_filtered, values='cantidad', index='nombre_envasador', columns='day', aggfunc='sum', fill_value=0)
+                # Filas: Envasador | Columnas: Año, Mes, Día numérico | Cruce: Suma
+                
+                # Convertimos el número de mes al nombre para visualización jerárquica
+                meses_ordenados = [dicc_meses[m].capitalize() for m in sorted(dicc_meses.keys())]
+                df_filtered['Mes_Nombre'] = pd.Categorical(df_filtered['month'].map(dicc_meses).str.capitalize(), categories=meses_ordenados, ordered=True)
+                
+                # Renombrar columnas para que se vean bien en el encabezado
+                df_filtered_renamed = df_filtered.rename(columns={'year': 'Año', 'Mes_Nombre': 'Mes', 'day': 'Día'})
+                
+                pivot = pd.pivot_table(df_filtered_renamed, values='cantidad', index='nombre_envasador', columns=['Año', 'Mes', 'Día'], aggfunc='sum', fill_value=0)
                 
                 # Fila mágica de bottom "Total" cruzando los arrays de sumas
                 pivot.loc['Total'] = pivot.sum()
                 
-                # Aplanamos indices para renderización
-                pivot_display = pivot.reset_index()
-                pivot_display.rename(columns={'nombre_envasador': 'usu_nombre'}, inplace=True)
+                # Renombrar el índice para que se renderice como "Envasadores"
+                pivot.index.name = "Envasadores"
                 
-                # Desplegamos tabla de calor de forma interactiva (así no se rompen bordes con 31 columnas horizontales)
-                st.dataframe(pivot_display, use_container_width=True, hide_index=True)
+                # Desplegamos tabla de calor de forma interactiva. 
+                # Al no aplanar el index (reset_index), Streamlit usa soporte nativo para anidar las columnas (Año -> Mes -> Día)
+                st.dataframe(pivot, use_container_width=True)
                 
                 # 2. ARMADO DEL GRÁFICO AZUL INFERIOR
                 st.markdown("---")
-                st.markdown("#### Suma de env_cantidad por Mes y Día")
+                st.markdown("#### Suma de Cantidad Producida por Fecha")
                 
-                # Condensar a la agrupacion estandar por dia para barras
-                daily_sum = df_filtered.groupby('day')['cantidad'].sum().reset_index()
+                # Condensar a la agrupacion por fecha (soporta multiples meses de corrido sin pisarse)
+                daily_sum = df_filtered.groupby('fecha_dt')['cantidad'].sum().reset_index()
                 
-                fig = px.bar(daily_sum, x='day', y='cantidad')
+                fig = px.bar(daily_sum, x='fecha_dt', y='cantidad')
                 fig.update_layout(
-                    xaxis_title="Día",
-                    yaxis_title="Suma de env_cantidad",
-                    xaxis=dict(tickmode='linear', dtick=1), # Forzar todos los int de los días en la barra abajo
+                    xaxis_title="Fecha",
+                    yaxis_title="Cantidad Total",
+                    xaxis=dict(tickformat="%d/%m/%Y"), # Mostrar fechas legibles
                     plot_bgcolor='rgba(0,0,0,0)',
                     paper_bgcolor='rgba(0,0,0,0)',
                     margin=dict(l=20, r=20, t=30, b=20)
