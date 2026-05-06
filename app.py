@@ -412,28 +412,45 @@ elif nav_selection == "BI":
                 
             # Intersección de cortes del Dataframe
             df_filtered = df_bi.copy()
-            if sel_years:
-                df_filtered = df_filtered[df_filtered['year'].isin(sel_years)]
-            if sel_months:
-                df_filtered = df_filtered[df_filtered['month'].isin(sel_months)]
+            
+            # Filtros estrictos para Año y Mes: si vacían el filtro, no se muestra nada.
+            df_filtered = df_filtered[df_filtered['year'].isin(sel_years)]
+            df_filtered = df_filtered[df_filtered['month'].isin(sel_months)]
+            
+            # Filtro ágil para Envasadores: si está vacío, se asume "Todos"
             if sel_envasadores:
                 df_filtered = df_filtered[df_filtered['nombre_envasador'].isin(sel_envasadores)]
+                
+            df_filtered = df_filtered.copy() # Evitar SettingWithCopyWarning
                 
             if df_filtered.empty:
                 st.warning("No hay registros de producción para los filtros seleccionados.")
             else:
                 st.markdown("---")
                 # 1. ARMADO DE LA TABLA PIVOT POR DIA EXACTA (Excel style)
-                # Filas: Envasador | Columnas: Año, Mes, Día numérico | Cruce: Suma
+                # Para evitar que Streamlit aplane visualmente 3 niveles (Año / Mes / Día), 
+                # combinamos Año y Mes en un solo nivel de cabecera "Período" (Ej: "Mayo 2026")
                 
-                # Convertimos el número de mes al nombre para visualización jerárquica
-                meses_ordenados = [dicc_meses[m].capitalize() for m in sorted(dicc_meses.keys())]
-                df_filtered['Mes_Nombre'] = pd.Categorical(df_filtered['month'].map(dicc_meses).str.capitalize(), categories=meses_ordenados, ordered=True)
+                df_filtered['Mes_Str'] = df_filtered['month'].map(dicc_meses).str.capitalize()
+                df_filtered['Período'] = df_filtered['Mes_Str'] + " " + df_filtered['year'].astype(str)
                 
-                # Renombrar columnas para que se vean bien en el encabezado
-                df_filtered_renamed = df_filtered.rename(columns={'year': 'Año', 'Mes_Nombre': 'Mes', 'day': 'Día'})
+                # Forzamos orden cronológico creando un tipo categórico estructurado
+                all_years_sorted = sorted(df_bi['year'].unique())
+                periodos_ordenados = []
+                for y in all_years_sorted:
+                    for m in sorted(dicc_meses.keys()):
+                        periodos_ordenados.append(f"{dicc_meses[m].capitalize()} {y}")
+                        
+                df_filtered['Período'] = pd.Categorical(df_filtered['Período'], categories=periodos_ordenados, ordered=True)
                 
-                pivot = pd.pivot_table(df_filtered_renamed, values='cantidad', index='nombre_envasador', columns=['Año', 'Mes', 'Día'], aggfunc='sum', fill_value=0)
+                # Remover categorías sin datos para que no aparezcan columnas vacías (Enero, Febrero, etc.)
+                df_filtered['Período'] = df_filtered['Período'].cat.remove_unused_categories()
+                
+                # Renombrar columnas para el cruce
+                df_filtered_renamed = df_filtered.rename(columns={'day': 'Día'})
+                
+                # Pivot de 2 niveles: Período -> Día. observed=True asegura que solo se pivoteen datos reales
+                pivot = pd.pivot_table(df_filtered_renamed, values='cantidad', index='nombre_envasador', columns=['Período', 'Día'], aggfunc='sum', fill_value=0, observed=True)
                 
                 # Fila mágica de bottom "Total" cruzando los arrays de sumas
                 pivot.loc['Total'] = pivot.sum()
@@ -441,8 +458,7 @@ elif nav_selection == "BI":
                 # Renombrar el índice para que se renderice como "Envasadores"
                 pivot.index.name = "Envasadores"
                 
-                # Desplegamos tabla de calor de forma interactiva. 
-                # Al no aplanar el index (reset_index), Streamlit usa soporte nativo para anidar las columnas (Año -> Mes -> Día)
+                # Desplegamos tabla con MultiIndex nativo de Streamlit (Agrupa "Mayo 2026" arriba y los Días abajo)
                 st.dataframe(pivot, use_container_width=True)
                 
                 # 2. ARMADO DEL GRÁFICO AZUL INFERIOR
