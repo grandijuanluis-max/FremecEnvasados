@@ -53,8 +53,8 @@ if not st.session_state["logged_in"]:
     st.markdown("""
     <div style='display: flex; flex-direction: column; align-items: center; margin-top: 50px; margin-bottom: 40px;'>
         <div style='display: flex; align-items: center; justify-content: center;'>
-            <img src="https://www.fremec.com.ar/img/logo.svg" style="height: 155px; margin-right: 5px;">
-            <div style='text-align: left; display: flex; flex-direction: column; justify-content: center;'>
+            <img src="https://www.fremec.com.ar/img/logo.svg" style="height: 190px; margin-right: -25px; position: relative; z-index: 10;">
+            <div style='text-align: left; display: flex; flex-direction: column; justify-content: center; font-family: "Segoe UI", sans-serif; position: relative; z-index: 1;'>
                 <span style='color: #0056b3; font-size: 80px; font-weight: 700; line-height: 0.9;'>FREMEC</span>
                 <span style='color: #64748b; font-size: 14px; margin-top: 5px; font-weight: 500;'>Cable de comandos</span>
             </div>
@@ -277,7 +277,7 @@ elif nav_selection == "Envasado":
         st.warning(f" Tu usuario ({nombre_activo}) sólo tiene permisos de contemplación. No puedes declarar producción a nombre de terceros ni el tuyo.")
     else:
         with st.expander("➕ Carga de Registro Personal", expanded=True):
-            with st.form("form_alta_registro", clear_on_submit=True):
+            with st.form("form_alta_registro", clear_on_submit=False):
                 col_f, col_c, col_e = st.columns(3)
                 with col_f: r_fecha = st.date_input("Fecha", format="DD/MM/YYYY")
                 with col_c: r_cantidad = st.number_input("Cantidad Producida", min_value=0, step=1)
