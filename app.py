@@ -278,15 +278,22 @@ elif nav_selection == "Envasado":
     if not puede_envasar:
         st.warning(f" Tu usuario ({nombre_activo}) sólo tiene permisos de contemplación. No puedes declarar producción a nombre de terceros ni el tuyo.")
     else:
+        if "form_reset_counter" not in st.session_state:
+            st.session_state["form_reset_counter"] = 0
+            
         with st.expander("➕ Carga de Registro Personal", expanded=True):
             with st.form("form_alta_registro", clear_on_submit=False):
                 col_f, col_c, col_e = st.columns(3)
                 with col_f: r_fecha = st.date_input("Fecha", format="DD/MM/YYYY", key="r_fecha_input")
-                with col_c: r_cantidad = st.number_input("Cantidad Producida", min_value=0, step=1, key="r_cantidad_input")
+                
+                cantidad_key = f"r_cantidad_{st.session_state['form_reset_counter']}"
+                obs_key = f"r_obs_{st.session_state['form_reset_counter']}"
+                
+                with col_c: r_cantidad = st.number_input("Cantidad Producida", min_value=0, step=1, key=cantidad_key)
                 
                 with col_e: st.text_input("Envasador Responsable", value=nombre_activo, disabled=True)
                 
-                r_obs = st.text_area("Observaciones del turno", key="r_obs_input")
+                r_obs = st.text_area("Observaciones del turno", key=obs_key)
                 
                 submit_btn = st.form_submit_button("Guardar en Nube")
                 
@@ -317,9 +324,8 @@ elif nav_selection == "Envasado":
                             supabase.table("registros_envasado").insert(data).execute()
                             registrar_auditoria(nombre_activo, "registros_envasado", "ALTA", f"Cargó {r_cantidad} unds producidas.")
                             
-                            # Limpiar campos específicos para la carga de un nuevo registro
-                            st.session_state["r_cantidad_input"] = 0
-                            st.session_state["r_obs_input"] = ""
+                            # Incrementamos el contador para generar nuevas keys y resetear los widgets
+                            st.session_state["form_reset_counter"] += 1
                             st.session_state["mostrar_exito_guardado"] = True
                             st.rerun()
                         except Exception as e:
