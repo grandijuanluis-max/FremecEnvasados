@@ -281,14 +281,20 @@ elif nav_selection == "Envasado":
         with st.expander("➕ Carga de Registro Personal", expanded=True):
             with st.form("form_alta_registro", clear_on_submit=False):
                 col_f, col_c, col_e = st.columns(3)
-                with col_f: r_fecha = st.date_input("Fecha", format="DD/MM/YYYY")
-                with col_c: r_cantidad = st.number_input("Cantidad Producida", min_value=0, step=1)
+                with col_f: r_fecha = st.date_input("Fecha", format="DD/MM/YYYY", key="r_fecha_input")
+                with col_c: r_cantidad = st.number_input("Cantidad Producida", min_value=0, step=1, key="r_cantidad_input")
                 
                 with col_e: st.text_input("Envasador Responsable", value=nombre_activo, disabled=True)
                 
-                r_obs = st.text_area("Observaciones del turno")
+                r_obs = st.text_area("Observaciones del turno", key="r_obs_input")
                 
-                if st.form_submit_button("Guardar en Nube"):
+                submit_btn = st.form_submit_button("Guardar en Nube")
+                
+                if "mostrar_exito_guardado" in st.session_state and st.session_state["mostrar_exito_guardado"]:
+                    st.success("Guardado ok.")
+                    st.session_state["mostrar_exito_guardado"] = False
+                    
+                if submit_btn:
                     if not r_obs or str(r_obs).strip() == "":
                         st.error("No se ingresaron observaciones, por favor ingreselas para poder guardar")
                         st.components.v1.html("""
@@ -310,7 +316,12 @@ elif nav_selection == "Envasado":
                         try:
                             supabase.table("registros_envasado").insert(data).execute()
                             registrar_auditoria(nombre_activo, "registros_envasado", "ALTA", f"Cargó {r_cantidad} unds producidas.")
-                            st.success("Guardado ok.")
+                            
+                            # Limpiar campos específicos para la carga de un nuevo registro
+                            st.session_state["r_cantidad_input"] = 0
+                            st.session_state["r_obs_input"] = ""
+                            st.session_state["mostrar_exito_guardado"] = True
+                            st.rerun()
                         except Exception as e:
                              st.error(f"Error al subir: {e}")
                     else:
