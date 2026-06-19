@@ -205,15 +205,24 @@ if nav_selection == "Gestión":
             with col3: u_pass = st.text_input("Contraseña", type="password")
             
             st.markdown("**Permisos de Acceso**")
-            colp1, colp2, colp3 = st.columns(3)
+            colp1, colp2, colp3, colp4 = st.columns(4)
             with colp1: p_abm = st.checkbox("ABM Envasadores")
             with colp2: p_bi = st.checkbox("Módulo BI (Dashboards)")
             with colp3: p_envasado = st.checkbox("Carga de Envasados")
+            with colp4: p_nodb = st.checkbox("No mostrar en Dashboard", value=False)
                 
             if st.form_submit_button("Guardar Usuario"):
                 if u_nombre:
                     try:
-                        data = {"nombre": u_nombre, "email": u_email, "password": u_pass, "permiso_abm": p_abm, "permiso_bi": p_bi, "permiso_envasado": p_envasado}
+                        data = {
+                            "nombre": u_nombre, 
+                            "email": u_email, 
+                            "password": u_pass, 
+                            "permiso_abm": p_abm, 
+                            "permiso_bi": p_bi, 
+                            "permiso_envasado": p_envasado,
+                            "permisos_nodb": p_nodb
+                        }
                         supabase.table("usuarios_envasadores").insert(data).execute()
                         registrar_auditoria(nombre_activo, "usuarios_envasadores", "ALTA", f"El admin creó al usuario: {u_nombre}.")
                         st.success("Usuario registrado.")
@@ -225,13 +234,28 @@ if nav_selection == "Gestión":
         response = supabase.table("usuarios_envasadores").select("*").order("id").execute()
         if response.data:
             df_users = pd.DataFrame(response.data)
-            display_df = df_users[['id', 'nombre', 'email', 'permiso_abm', 'permiso_bi', 'permiso_envasado']].copy()
+            
+            # Asegurar la columna permisos_nodb de forma defensiva si no viene de BD
+            if 'permisos_nodb' not in df_users.columns:
+                df_users['permisos_nodb'] = False
+            else:
+                df_users['permisos_nodb'] = df_users['permisos_nodb'].fillna(False).astype(bool)
+                
+            display_df = df_users[['id', 'nombre', 'email', 'permiso_abm', 'permiso_bi', 'permiso_envasado', 'permisos_nodb']].copy()
             
             st.info("💡 **Tip de Edición:** Edita cualquier celda directamente. Para **BORRAR** un usuario, selecciona la fila tocando su casilla izquierda y oprime suprimir o el icono de tacho. Al finalizar, haz click en Guardar.")
             
             edited_df = st.data_editor(
                 display_df, num_rows="dynamic", use_container_width=True, hide_index=True, key="abm_editor",
-                column_config={"id": None, "nombre": "Nombre", "email": "Correo", "permiso_abm": "Admin", "permiso_bi": "Analítica", "permiso_envasado": "Planta"}
+                column_config={
+                    "id": None, 
+                    "nombre": "Nombre", 
+                    "email": "Correo", 
+                    "permiso_abm": "Admin", 
+                    "permiso_bi": "Analítica", 
+                    "permiso_envasado": "Planta",
+                    "permisos_nodb": "No mostrar en Dashboard"
+                }
             )
             
             if st.button("💾 Guardar Cambios Editados de Tabla", type="primary"):
@@ -259,6 +283,7 @@ if nav_selection == "Gestión":
                             "permiso_abm": new_row.get("permiso_abm", False),
                             "permiso_bi": new_row.get("permiso_bi", False),
                             "permiso_envasado": new_row.get("permiso_envasado", False),
+                            "permisos_nodb": new_row.get("permisos_nodb", False),
                         }
                         supabase.table("usuarios_envasadores").insert(new_data).execute()
                         cambios = True
@@ -386,10 +411,21 @@ elif nav_selection == "BI":
     st.title("Business Intelligence")
     
     try:
+        # Obtener los usuarios que tienen marcado "No mostrar en Dashboard" (permisos_nodb = True)
+        try:
+            res_excluidos = supabase.table("usuarios_envasadores").select("nombre").eq("permisos_nodb", True).execute()
+            nombres_excluidos = [u["nombre"] for u in res_excluidos.data] if res_excluidos.data else []
+        except Exception as e:
+            nombres_excluidos = []
+            st.warning("⚠️ Nota: No se pudo verificar la exclusión de usuarios en el dashboard (¿Columna 'permisos_nodb' pendiente en la base de datos?)")
+            
         # Descargar la BD entera y tratarla analíticamente en memoria
         response = supabase.table("registros_envasado").select("*").execute()
         if response.data:
             df_bi = pd.DataFrame(response.data)
+            # Excluir registros de producción de los usuarios tildados
+            if nombres_excluidos:
+                df_bi = df_bi[~df_bi['nombre_envasador'].isin(nombres_excluidos)]
             
             # Formatear la fecha para extraer años, meses y días
             df_bi['fecha_dt'] = pd.to_datetime(df_bi['fecha'], format="%d/%m/%Y", errors='coerce')
