@@ -2,8 +2,9 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime
 import json
-from supabase import create_client, Client
 import plotly.express as px
+
+from supabase_http import create_client, SupabaseHttpClient
 
 # -----------------
 # 1. CONFIGURACIÓN DE PÁGINA 
@@ -13,17 +14,27 @@ st.set_page_config(page_title="Fremec - Sistema", page_icon="🏭", layout="wide
 # -----------------
 # 2. CONEXIÓN A BASE DE DATOS
 # -----------------
-@st.cache_resource
-def init_connection() -> Client:
-    try:
-        url = st.secrets["SUPABASE_URL"]
-        key = st.secrets["SUPABASE_KEY"]
-        return create_client(url, key)
-    except KeyError:
-        st.error("⚠️ Faltan las variables SUPABASE_URL o SUPABASE_KEY en tu archivo .streamlit/secrets.toml!")
-        st.stop()
+@st.cache_resource(show_spinner=False)
+def init_connection() -> SupabaseHttpClient:
+    url = st.secrets["SUPABASE_URL"].strip()
+    key = st.secrets["SUPABASE_KEY"].strip()
+    client = create_client(url, key)
+    # Verificación rápida al arrancar (falla visible si credenciales inválidas)
+    client.table("usuarios_envasadores").select("id").limit(1).execute()
+    return client
 
-supabase = init_connection()
+
+try:
+    supabase = init_connection()
+except (KeyError, FileNotFoundError):
+    st.error(
+        "⚠️ Faltan las credenciales **SUPABASE_URL** y/o **SUPABASE_KEY**.\n\n"
+        "En Streamlit Cloud: **Manage app → Settings → Secrets**."
+    )
+    st.stop()
+except Exception as e:
+    st.error(f"⚠️ No se pudo conectar a Supabase: {e}")
+    st.stop()
 
 # -----------------
 # FUNCIONES AUXILIARES DE AUDITORÍA
