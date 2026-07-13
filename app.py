@@ -18,10 +18,7 @@ st.set_page_config(page_title="Fremec - Sistema", page_icon="🏭", layout="wide
 def init_connection() -> SupabaseHttpClient:
     url = st.secrets["SUPABASE_URL"].strip()
     key = st.secrets["SUPABASE_KEY"].strip()
-    client = create_client(url, key)
-    # Verificación rápida al arrancar (falla visible si credenciales inválidas)
-    client.table("usuarios_envasadores").select("id").limit(1).execute()
-    return client
+    return create_client(url, key)
 
 
 try:
