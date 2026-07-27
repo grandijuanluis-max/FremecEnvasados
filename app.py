@@ -1,10 +1,92 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime
+from io import BytesIO
 import json
 import plotly.express as px
 
 from supabase_http import create_client, SupabaseHttpClient
+
+
+def _write_dataframe_to_xls(df: pd.DataFrame) -> bytes:
+    """Escribe un DataFrame (incluye MultiIndex) a bytes en formato .xls (xlwt)."""
+    import xlwt
+
+    wb = xlwt.Workbook(encoding="utf-8")
+    ws = wb.add_sheet("Grilla")
+    header_style = xlwt.easyxf("font: bold on; align: horiz center, vert center")
+    index_style = xlwt.easyxf("font: bold on")
+
+    n_header_rows = df.columns.nlevels if isinstance(df.columns, pd.MultiIndex) else 1
+    index_col = 0
+
+    # Encabezados
+    if isinstance(df.columns, pd.MultiIndex):
+        for level in range(n_header_rows):
+            label = df.index.name if level == n_header_rows - 1 else ""
+            ws.write(level, index_col, label or "", header_style)
+            for col_idx, col in enumerate(df.columns):
+                ws.write(level, col_idx + 1, str(col[level]), header_style)
+    else:
+        ws.write(0, index_col, df.index.name or "", header_style)
+        for col_idx, col in enumerate(df.columns):
+            ws.write(0, col_idx + 1, str(col), header_style)
+
+    # Filas de datos
+    for row_idx, (idx, row) in enumerate(df.iterrows()):
+        excel_row = n_header_rows + row_idx
+        ws.write(excel_row, index_col, str(idx), index_style)
+        for col_idx, val in enumerate(row):
+            if pd.isna(val):
+                ws.write(excel_row, col_idx + 1, 0)
+            elif isinstance(val, (int, float)) and not isinstance(val, bool):
+                ws.write(excel_row, col_idx + 1, float(val))
+            else:
+                ws.write(excel_row, col_idx + 1, str(val))
+
+    buffer = BytesIO()
+    wb.save(buffer)
+    return buffer.getvalue()
+
+
+def dataframe_to_excel_bytes(df: pd.DataFrame, file_format: str) -> tuple[bytes, str, str]:
+    """
+    Convierte un DataFrame a Excel en memoria.
+    Retorna (bytes, mime, extensión) para XLSX u XLS.
+    """
+    fmt = file_format.upper()
+    if fmt == "XLSX":
+        buffer = BytesIO()
+        with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
+            df.to_excel(writer, sheet_name="Grilla")
+        return (
+            buffer.getvalue(),
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            "xlsx",
+        )
+
+    # XLS (formato binario legacy)
+    return (
+        _write_dataframe_to_xls(df),
+        "application/vnd.ms-excel",
+        "xls",
+    )
+
+
+def construir_pivot_resumen_mes(df_filtered: pd.DataFrame) -> pd.DataFrame:
+    """Agrupa por mes (Período): mantiene envasadores y suma el detalle diario."""
+    pivot_mes = pd.pivot_table(
+        df_filtered,
+        values="cantidad",
+        index="nombre_envasador",
+        columns="Período",
+        aggfunc="sum",
+        fill_value=0,
+        observed=True,
+    )
+    pivot_mes.loc["Total"] = pivot_mes.sum()
+    pivot_mes.index.name = "Envasadores"
+    return pivot_mes
 
 # -----------------
 # 1. CONFIGURACIÓN DE PÁGINA 
@@ -600,14 +682,56 @@ elif nav_selection == "BI":
                 
                 st.markdown(html_str_clean, unsafe_allow_html=True)
                 
-                # Agregamos un botón de descarga para no perder la exportación a Excel/CSV
-                csv_data = pivot.to_csv().encode('utf-8')
-                st.download_button(
-                    label="📥 Descargar Grilla en CSV",
-                    data=csv_data,
-                    file_name="grilla_produccion.csv",
-                    mime="text/csv",
+                # Descarga a Excel: formato (XLS/XLSX) → tipo (Detallado / Resumen x Mes)
+                # Siempre usa df_filtered / pivot ya cortados por los filtros de Año, Mes y Envasador.
+                st.markdown("#### 📥 Descargar Grilla en Excel")
+                excel_fmt = st.radio(
+                    "¿Qué formato de archivo desea?",
+                    options=["XLSX", "XLS"],
+                    horizontal=True,
+                    index=None,
+                    key="bi_excel_formato",
                 )
+
+                if excel_fmt:
+                    excel_tipo = st.radio(
+                        "¿Qué tipo de grilla desea descargar?",
+                        options=["Detallado", "Resumen x Mes"],
+                        horizontal=True,
+                        index=None,
+                        key="bi_excel_tipo",
+                        help="Detallado: misma grilla día por día. Resumen x Mes: suma por mes manteniendo el desglose por envasador.",
+                    )
+
+                    if excel_tipo:
+                        if excel_tipo == "Detallado":
+                            export_df = pivot
+                            tipo_slug = "detallado"
+                        else:
+                            export_df = construir_pivot_resumen_mes(df_filtered)
+                            tipo_slug = "resumen_mes"
+
+                        # XLS legacy: máximo 256 columnas (incluye índice Envasadores)
+                        if excel_fmt == "XLS" and (len(export_df.columns) + 1) > 256:
+                            st.warning(
+                                "El formato **XLS** admite como máximo 256 columnas. "
+                                "Reducí el rango de filtros o elegí **XLSX**."
+                            )
+                        else:
+                            try:
+                                excel_bytes, excel_mime, excel_ext = dataframe_to_excel_bytes(export_df, excel_fmt)
+                                st.download_button(
+                                    label=f"⬇️ Descargar ({excel_fmt} · {excel_tipo})",
+                                    data=excel_bytes,
+                                    file_name=f"grilla_produccion_{tipo_slug}.{excel_ext}",
+                                    mime=excel_mime,
+                                    key=f"bi_dl_{excel_fmt}_{tipo_slug}",
+                                )
+                                if excel_tipo == "Resumen x Mes":
+                                    st.caption("Vista previa del resumen (envasadores × mes; totales sumados):")
+                                    st.dataframe(export_df, use_container_width=True)
+                            except Exception as export_err:
+                                st.error(f"No se pudo generar el archivo Excel: {export_err}")
                 
                 # 2. SECCIÓN DE GRÁFICOS
                 st.markdown("---")
