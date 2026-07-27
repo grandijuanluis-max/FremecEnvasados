@@ -3,14 +3,172 @@ import pandas as pd
 from datetime import datetime
 from io import BytesIO
 import json
+import zipfile
+import xml.sax.saxutils as xml_escape
 import plotly.express as px
 
 from supabase_http import create_client, SupabaseHttpClient
 
 
+def _excel_col_name(idx: int) -> str:
+    """Convierte índice 0-based a letra de columna Excel (A, B, ..., AA)."""
+    name = ""
+    n = idx + 1
+    while n:
+        n, rem = divmod(n - 1, 26)
+        name = chr(65 + rem) + name
+    return name
+
+
+def _xml_text(value) -> str:
+    return xml_escape.escape(str(value))
+
+
+def _write_dataframe_to_xlsx_stdlib(df: pd.DataFrame) -> bytes:
+    """Genera un .xlsx válido solo con la librería estándar (sin openpyxl/xlsxwriter)."""
+    n_header_rows = df.columns.nlevels if isinstance(df.columns, pd.MultiIndex) else 1
+    rows_xml = []
+
+    def cell_xml(col_idx: int, row_idx: int, value, force_str: bool = False) -> str:
+        ref = f"{_excel_col_name(col_idx)}{row_idx}"
+        if value is None or (isinstance(value, float) and pd.isna(value)):
+            return f'<c r="{ref}"/>'
+        if force_str or isinstance(value, str) or not isinstance(value, (int, float)) or isinstance(value, bool):
+            return f'<c r="{ref}" t="inlineStr"><is><t>{_xml_text(value)}</t></is></c>'
+        return f'<c r="{ref}"><v>{float(value)}</v></c>'
+
+    # Encabezados
+    for level in range(n_header_rows):
+        excel_row = level + 1
+        cells = [cell_xml(0, excel_row, (df.index.name or "") if level == n_header_rows - 1 else "", force_str=True)]
+        if isinstance(df.columns, pd.MultiIndex):
+            for col_idx, col in enumerate(df.columns):
+                cells.append(cell_xml(col_idx + 1, excel_row, col[level], force_str=True))
+        else:
+            for col_idx, col in enumerate(df.columns):
+                cells.append(cell_xml(col_idx + 1, excel_row, col, force_str=True))
+        rows_xml.append(f'<row r="{excel_row}">{"".join(cells)}</row>')
+
+    # Datos
+    for r_offset, (idx, row) in enumerate(df.iterrows()):
+        excel_row = n_header_rows + r_offset + 1
+        cells = [cell_xml(0, excel_row, idx, force_str=True)]
+        for col_idx, val in enumerate(row):
+            if pd.isna(val):
+                cells.append(cell_xml(col_idx + 1, excel_row, 0))
+            elif isinstance(val, (int, float)) and not isinstance(val, bool):
+                cells.append(cell_xml(col_idx + 1, excel_row, val))
+            else:
+                cells.append(cell_xml(col_idx + 1, excel_row, val, force_str=True))
+        rows_xml.append(f'<row r="{excel_row}">{"".join(cells)}</row>')
+
+    sheet_xml = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+        f'<sheetData>{"".join(rows_xml)}</sheetData>'
+        "</worksheet>"
+    )
+    content_types = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+        '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
+        '<Default Extension="xml" ContentType="application/xml"/>'
+        '<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>'
+        '<Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>'
+        "</Types>"
+    )
+    rels = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+        '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>'
+        "</Relationships>"
+    )
+    workbook = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" '
+        'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
+        '<sheets><sheet name="Grilla" sheetId="1" r:id="rId1"/></sheets>'
+        "</workbook>"
+    )
+    workbook_rels = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+        '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>'
+        "</Relationships>"
+    )
+
+    buffer = BytesIO()
+    with zipfile.ZipFile(buffer, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("[Content_Types].xml", content_types)
+        zf.writestr("_rels/.rels", rels)
+        zf.writestr("xl/workbook.xml", workbook)
+        zf.writestr("xl/_rels/workbook.xml.rels", workbook_rels)
+        zf.writestr("xl/worksheets/sheet1.xml", sheet_xml)
+    return buffer.getvalue()
+
+
+def _write_dataframe_to_xls_spreadsheetml(df: pd.DataFrame) -> bytes:
+    """Fallback XLS vía SpreadsheetML (Excel lo abre) sin depender de xlwt."""
+    n_header_rows = df.columns.nlevels if isinstance(df.columns, pd.MultiIndex) else 1
+    table_rows = []
+
+    def row_xml(values, is_header: bool = False) -> str:
+        cells = []
+        for val in values:
+            if is_header or isinstance(val, str) or not isinstance(val, (int, float)) or isinstance(val, bool):
+                cells.append(f'<Cell><Data ss:Type="String">{_xml_text("" if val is None else val)}</Data></Cell>')
+            elif pd.isna(val):
+                cells.append('<Cell><Data ss:Type="Number">0</Data></Cell>')
+            else:
+                cells.append(f'<Cell><Data ss:Type="Number">{float(val)}</Data></Cell>')
+        return f"<Row>{''.join(cells)}</Row>"
+
+    for level in range(n_header_rows):
+        values = [(df.index.name or "") if level == n_header_rows - 1 else ""]
+        if isinstance(df.columns, pd.MultiIndex):
+            values.extend(col[level] for col in df.columns)
+        else:
+            values.extend(df.columns.tolist())
+        table_rows.append(row_xml(values, is_header=True))
+
+    for idx, row in df.iterrows():
+        values = [idx]
+        for val in row:
+            if pd.isna(val):
+                values.append(0)
+            else:
+                values.append(val)
+        table_rows.append(row_xml(values))
+
+    xml = (
+        '<?xml version="1.0"?>'
+        '<?mso-application progid="Excel.Sheet"?>'
+        '<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" '
+        'xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">'
+        '<Worksheet ss:Name="Grilla">'
+        f'<Table>{"".join(table_rows)}</Table>'
+        "</Worksheet></Workbook>"
+    )
+    return xml.encode("utf-8")
+
+
+def _resolve_xlsx_engine():
+    """Elige el primer motor XLSX disponible (openpyxl o xlsxwriter)."""
+    for engine, module_name in (("openpyxl", "openpyxl"), ("xlsxwriter", "xlsxwriter")):
+        try:
+            __import__(module_name)
+            return engine
+        except ImportError:
+            continue
+    return None
+
+
 def _write_dataframe_to_xls(df: pd.DataFrame) -> bytes:
-    """Escribe un DataFrame (incluye MultiIndex) a bytes en formato .xls (xlwt)."""
-    import xlwt
+    """Escribe un DataFrame (incluye MultiIndex) a bytes en formato .xls."""
+    try:
+        import xlwt
+    except ImportError:
+        return _write_dataframe_to_xls_spreadsheetml(df)
 
     wb = xlwt.Workbook(encoding="utf-8")
     ws = wb.add_sheet("Grilla")
@@ -53,19 +211,25 @@ def dataframe_to_excel_bytes(df: pd.DataFrame, file_format: str) -> tuple[bytes,
     """
     Convierte un DataFrame a Excel en memoria.
     Retorna (bytes, mime, extensión) para XLSX u XLS.
+    Usa openpyxl/xlsxwriter/xlwt si están; si no, fallback sin dependencias.
     """
     fmt = file_format.upper()
     if fmt == "XLSX":
-        buffer = BytesIO()
-        with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
-            df.to_excel(writer, sheet_name="Grilla")
+        engine = _resolve_xlsx_engine()
+        if engine:
+            buffer = BytesIO()
+            with pd.ExcelWriter(buffer, engine=engine) as writer:
+                df.to_excel(writer, sheet_name="Grilla")
+            payload = buffer.getvalue()
+        else:
+            payload = _write_dataframe_to_xlsx_stdlib(df)
         return (
-            buffer.getvalue(),
+            payload,
             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             "xlsx",
         )
 
-    # XLS (formato binario legacy)
+    # XLS (formato binario legacy o SpreadsheetML de respaldo)
     return (
         _write_dataframe_to_xls(df),
         "application/vnd.ms-excel",
