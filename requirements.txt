@@ -1,4 +1,6 @@
 streamlit==1.59.2
+# Starlette 1.4+ exige thread_minimum_size en GZipResponder; Streamlit 1.59.2 no lo pasa.
+starlette==1.3.1
 pandas==2.2.3
 numpy==2.0.2
 # pyarrow 25.0.0 provoca SIGSEGV en Streamlit Cloud (apache/arrow#50471)
