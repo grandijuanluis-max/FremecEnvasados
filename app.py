@@ -1,3 +1,13 @@
+import sys
+
+# Streamlit Cloud con Python 3.14 provoca crashes nativos (segfault) sin traceback.
+if sys.version_info >= (3, 14):
+    raise SystemExit(
+        "Python 3.14+ no es compatible con esta app. "
+        "En share.streamlit.io → Manage app → Settings → Python version elegí 3.11 o 3.12, "
+        "luego Reboot."
+    )
+
 import streamlit as st
 import pandas as pd
 from datetime import datetime

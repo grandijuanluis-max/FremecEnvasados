@@ -1,13 +1,4 @@
 [project]
 name = "fremecenvasados"
+version = "0.1.0"
 requires-python = ">=3.11,<3.14"
-
-[project.dependencies]
-streamlit = "==1.59.2"
-pandas = "==2.3.3"
-plotly = "==6.9.0"
-numpy = "==2.3.2"
-pyarrow = "==19.0.1"
-openpyxl = "==3.1.5"
-xlsxwriter = "==3.2.9"
-xlwt = "==1.3.0"
