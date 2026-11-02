@@ -11,6 +11,7 @@ if sys.version_info >= (3, 14):
 import streamlit as st
 import pandas as pd
 from datetime import datetime
+import time
 from io import BytesIO
 import json
 import zipfile
@@ -265,22 +266,34 @@ def construir_pivot_resumen_mes(df_filtered: pd.DataFrame) -> pd.DataFrame:
 # =========================================================================
 # ACCESO AL SERVICIO
 # False: el portal queda bloqueado. Ningún usuario y contraseña entra.
-#        Al ingresar, se muestra el aviso en pantalla.
+#        Al terminar la contraseña espera 3 segundos, muestra el aviso
+#        y anula cualquier uso del programa.
 # True: vuelve el ingreso normal.
 # Para rehabilitar el servicio, cambiar este valor a True.
 # =========================================================================
 SERVICIO_HABILITADO = False
 
-_AVISO_ADMIN_HTML = """
+def _html_aviso(mostrar_ya: bool) -> str:
+    """Aviso a pantalla completa. mostrar_ya lo dibuja al instante; si no, queda a la espera del envío."""
+    flag = "true" if mostrar_ya else "false"
+    return """
 <script>
 (function () {
-  if (document.getElementById("fremec-lock-overlay")) {
-    return;
-  }
+  var win = window;
+  var doc = document;
+  try {
+    if (window.parent && window.parent !== window && window.parent.document && window.parent.document.body) {
+      win = window.parent;
+      doc = window.parent.document;
+    }
+  } catch (err) {}
 
   var host = document.currentScript && document.currentScript.closest("[data-testid='stHtml']");
   if (host) {
-    host.style.display = "none";
+    host.style.height = "0";
+    host.style.overflow = "hidden";
+    host.style.margin = "0";
+    host.style.padding = "0";
   }
 
   var paleta = [
@@ -296,150 +309,213 @@ _AVISO_ADMIN_HTML = """
     ["#FFFFFF", "#111827"]
   ];
 
-  var overlay = document.createElement("div");
-  overlay.id = "fremec-lock-overlay";
-  overlay.setAttribute("role", "alert");
-  overlay.setAttribute("aria-live", "assertive");
-  overlay.style.cssText = [
-    "position:fixed",
-    "top:0",
-    "right:0",
-    "bottom:0",
-    "left:0",
-    "z-index:2147483647",
-    "overflow:hidden",
-    "pointer-events:auto",
-    "background:rgba(15,23,42,0.5)",
-    "margin:0",
-    "padding:0"
-  ].join(";");
-
-  var banner = document.createElement("div");
-  banner.id = "fremec-lock-banner";
-  banner.style.cssText = [
-    "position:absolute",
-    "left:0",
-    "top:0",
-    "margin:0",
-    "width:max-content",
-    "max-width:min(78vw, 920px)",
-    "font-family:'Segoe UI', Arial, Helvetica, sans-serif",
-    "font-size:clamp(40px, 5.4vw, 72px)",
-    "font-weight:800",
-    "line-height:1.25",
-    "text-align:center",
-    "user-select:none",
-    "pointer-events:none"
-  ].join(";");
-
-  var texto = document.createElement("span");
-  texto.id = "fremec-lock-text";
-  texto.textContent = "Comunicarse con el administrador del servicio";
-  texto.style.cssText = [
-    "display:inline",
-    "box-decoration-break:clone",
-    "-webkit-box-decoration-break:clone",
-    "padding:0.08em 0.22em",
-    "border-radius:0.14em",
-    "font-weight:800",
-    "letter-spacing:0.01em"
-  ].join(";");
-
-  var colorIdx = 0;
-  function aplicarColor() {
-    var par = paleta[colorIdx % paleta.length];
-    texto.style.background = par[0];
-    texto.style.color = par[1];
-    texto.style.boxShadow = "0 0 0 4px " + par[0] + ", 0 10px 28px rgba(0,0,0,0.35)";
-  }
-  aplicarColor();
-
-  banner.appendChild(texto);
-  overlay.appendChild(banner);
-  document.body.appendChild(overlay);
-  document.documentElement.style.overflow = "hidden";
-  document.body.style.overflow = "hidden";
-
-  var x = 24;
-  var y = 24;
-  var vx = 460;
-  var vy = 300;
-  var last = 0;
-
-  function tick(now) {
-    if (!last) {
-      last = now;
-    }
-    var dt = (now - last) / 1000;
-    last = now;
-    if (dt > 0.05) {
-      dt = 0.05;
-    }
-
-    var boundsW = overlay.clientWidth || window.innerWidth;
-    var boundsH = overlay.clientHeight || window.innerHeight;
-    var w = banner.offsetWidth;
-    var h = banner.offsetHeight;
-
-    if (boundsW < 2 || boundsH < 2 || w < 2 || h < 2) {
-      window.requestAnimationFrame(tick);
+  function armarAviso() {
+    if (doc.getElementById("fremec-lock-overlay")) {
       return;
     }
 
-    if (w >= boundsW - 4) {
-      x = 0;
-      vx = 0;
-    } else {
-      x += vx * dt;
+    var estilo = doc.createElement("style");
+    estilo.id = "fremec-lock-style";
+    estilo.textContent = [
+      "html, body { overflow: hidden !important; }",
+      "[data-testid='stApp'], [data-testid='stSidebar'], [data-testid='stHeader'], [data-testid='stToolbar'], [data-testid='stMain'] { pointer-events: none !important; }",
+      "#fremec-lock-overlay { pointer-events: auto !important; }"
+    ].join("\\n");
+    doc.head.appendChild(estilo);
+
+    var overlay = doc.createElement("div");
+    overlay.id = "fremec-lock-overlay";
+    overlay.setAttribute("role", "alert");
+    overlay.setAttribute("aria-live", "assertive");
+    overlay.style.cssText = [
+      "position:fixed",
+      "top:0",
+      "right:0",
+      "bottom:0",
+      "left:0",
+      "z-index:2147483647",
+      "overflow:hidden",
+      "pointer-events:auto",
+      "background:rgba(15,23,42,0.55)",
+      "margin:0",
+      "padding:0"
+    ].join(";");
+
+    var banner = doc.createElement("div");
+    banner.id = "fremec-lock-banner";
+    banner.style.cssText = [
+      "position:absolute",
+      "left:0",
+      "top:0",
+      "margin:0",
+      "width:max-content",
+      "max-width:min(78vw, 920px)",
+      "font-family:'Segoe UI', Arial, Helvetica, sans-serif",
+      "font-size:clamp(40px, 5.4vw, 72px)",
+      "font-weight:800",
+      "line-height:1.25",
+      "text-align:center",
+      "user-select:none",
+      "pointer-events:none"
+    ].join(";");
+
+    var texto = doc.createElement("span");
+    texto.id = "fremec-lock-text";
+    texto.textContent = "Comunicarse con el administrador del servicio";
+    texto.style.cssText = [
+      "display:inline",
+      "box-decoration-break:clone",
+      "-webkit-box-decoration-break:clone",
+      "padding:0.08em 0.22em",
+      "border-radius:0.14em",
+      "font-weight:800",
+      "letter-spacing:0.01em"
+    ].join(";");
+
+    var colorIdx = 0;
+    function aplicarColor() {
+      var par = paleta[colorIdx % paleta.length];
+      texto.style.background = par[0];
+      texto.style.color = par[1];
+      texto.style.boxShadow = "0 0 0 4px " + par[0] + ", 0 10px 28px rgba(0,0,0,0.35)";
     }
-    if (h >= boundsH - 4) {
-      y = 0;
-      vy = 0;
-    } else {
-      y += vy * dt;
+    aplicarColor();
+
+    banner.appendChild(texto);
+    overlay.appendChild(banner);
+    doc.body.appendChild(overlay);
+
+    var x = 24;
+    var y = 24;
+    var vx = 460;
+    var vy = 300;
+    var last = 0;
+
+    function tick(now) {
+      if (!last) {
+        last = now;
+      }
+      var dt = (now - last) / 1000;
+      last = now;
+      if (dt > 0.05) {
+        dt = 0.05;
+      }
+
+      var boundsW = overlay.clientWidth || win.innerWidth;
+      var boundsH = overlay.clientHeight || win.innerHeight;
+      var w = banner.offsetWidth;
+      var h = banner.offsetHeight;
+
+      if (boundsW < 2 || boundsH < 2 || w < 2 || h < 2) {
+        win.requestAnimationFrame(tick);
+        return;
+      }
+
+      if (w >= boundsW - 4) {
+        x = 0;
+        vx = 0;
+      } else {
+        x += vx * dt;
+      }
+      if (h >= boundsH - 4) {
+        y = 0;
+        vy = 0;
+      } else {
+        y += vy * dt;
+      }
+
+      var golpe = false;
+      if (vx !== 0 && x <= 0) {
+        if (vx < 0) {
+          golpe = true;
+        }
+        x = 0;
+        vx = Math.abs(vx);
+      } else if (vx !== 0 && x + w >= boundsW) {
+        if (vx > 0) {
+          golpe = true;
+        }
+        x = Math.max(0, boundsW - w);
+        vx = -Math.abs(vx);
+      }
+      if (vy !== 0 && y <= 0) {
+        if (vy < 0) {
+          golpe = true;
+        }
+        y = 0;
+        vy = Math.abs(vy);
+      } else if (vy !== 0 && y + h >= boundsH) {
+        if (vy > 0) {
+          golpe = true;
+        }
+        y = Math.max(0, boundsH - h);
+        vy = -Math.abs(vy);
+      }
+
+      if (golpe) {
+        colorIdx += 1;
+        aplicarColor();
+      }
+
+      banner.style.transform = "translate3d(" + x.toFixed(2) + "px," + y.toFixed(2) + "px,0)";
+      win.requestAnimationFrame(tick);
     }
 
-    var golpe = false;
-    if (vx !== 0 && x <= 0) {
-      if (vx < 0) {
-        golpe = true;
-      }
-      x = 0;
-      vx = Math.abs(vx);
-    } else if (vx !== 0 && x + w >= boundsW) {
-      if (vx > 0) {
-        golpe = true;
-      }
-      x = Math.max(0, boundsW - w);
-      vx = -Math.abs(vx);
-    }
-    if (vy !== 0 && y <= 0) {
-      if (vy < 0) {
-        golpe = true;
-      }
-      y = 0;
-      vy = Math.abs(vy);
-    } else if (vy !== 0 && y + h >= boundsH) {
-      if (vy > 0) {
-        golpe = true;
-      }
-      y = Math.max(0, boundsH - h);
-      vy = -Math.abs(vy);
-    }
+    win.requestAnimationFrame(tick);
 
-    if (golpe) {
-      colorIdx += 1;
-      aplicarColor();
+    if (!win.__fremecBloqueoEventos) {
+      win.__fremecBloqueoEventos = true;
+      var tipos = ["click", "dblclick", "mousedown", "mouseup", "pointerdown", "pointerup", "touchstart", "touchend", "keydown", "keyup", "keypress", "submit", "contextmenu", "wheel"];
+      tipos.forEach(function (tipo) {
+        win.addEventListener(tipo, function (e) {
+          if (!doc.getElementById("fremec-lock-overlay")) {
+            return;
+          }
+          e.preventDefault();
+          e.stopPropagation();
+        }, true);
+      });
     }
-
-    banner.style.transform = "translate3d(" + x.toFixed(2) + "px," + y.toFixed(2) + "px,0)";
-    window.requestAnimationFrame(tick);
   }
 
-  window.requestAnimationFrame(tick);
+  win.__fremecArmarAviso = armarAviso;
+
+  function programarAviso() {
+    if (doc.getElementById("fremec-lock-overlay") || win.__fremecAvisoTimer) {
+      return;
+    }
+    win.__fremecAvisoTimer = win.setTimeout(armarAviso, 3000);
+  }
+
+  if (!win.__fremecWatch) {
+    win.__fremecWatch = true;
+    doc.addEventListener("click", function (e) {
+      var nodo = e.target;
+      if (!nodo || !nodo.closest) {
+        return;
+      }
+      var boton = nodo.closest("button");
+      if (boton && /Ingresar al Sistema/.test(boton.innerText || "")) {
+        programarAviso();
+      }
+    }, true);
+    doc.addEventListener("keydown", function (e) {
+      if (e.key !== "Enter") {
+        return;
+      }
+      var campo = e.target;
+      if (campo && campo.tagName === "INPUT" && campo.type === "password") {
+        programarAviso();
+      }
+    }, true);
+  }
+
+  if (__MOSTRAR_YA__) {
+    armarAviso();
+  }
 })();
 </script>
-"""
+""".replace("__MOSTRAR_YA__", flag)
 
 
 def _render_portal_bloqueado() -> None:
@@ -470,12 +546,19 @@ def _render_portal_bloqueado() -> None:
             st.text_input("Contraseña", type="password", key="bloqueo_password")
             intento = st.form_submit_button("Ingresar al Sistema", use_container_width=True)
 
+    # El vigilante queda en la página desde el primer pantallazo.
+    # Al enviar la contraseña (botón o Enter) espera 3 segundos y recién ahí aparece el aviso.
     if intento:
         st.session_state["aviso_admin_visible"] = True
+        st.session_state["logged_in"] = False
+        st.session_state["user_data"] = None
+        with st.spinner("Ingresando..."):
+            time.sleep(3)
 
-    if st.session_state.get("aviso_admin_visible"):
-        st.html(_AVISO_ADMIN_HTML, unsafe_allow_javascript=True)
-
+    st.html(
+        _html_aviso(bool(st.session_state.get("aviso_admin_visible"))),
+        unsafe_allow_javascript=True,
+    )
     st.stop()
 
 # -----------------
@@ -556,6 +639,12 @@ if not st.session_state["logged_in"]:
             submit = st.form_submit_button("Ingresar al Sistema", use_container_width=True)
             
             if submit:
+                if not SERVICIO_HABILITADO:
+                    time.sleep(3)
+                    st.session_state["logged_in"] = False
+                    st.session_state["user_data"] = None
+                    st.session_state["aviso_admin_visible"] = True
+                    st.rerun()
                 res1 = supabase.table("usuarios_envasadores").select("*").eq("nombre", user_cred).eq("password", password).execute()
                 res2 = supabase.table("usuarios_envasadores").select("*").eq("email", user_cred).eq("password", password).execute()
                 
