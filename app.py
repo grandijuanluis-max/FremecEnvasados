@@ -262,10 +262,229 @@ def construir_pivot_resumen_mes(df_filtered: pd.DataFrame) -> pd.DataFrame:
     pivot_mes.index.name = "Envasadores"
     return pivot_mes
 
+# =========================================================================
+# ACCESO AL SERVICIO
+# False: el portal queda bloqueado. Ningún usuario y contraseña entra.
+#        Al ingresar, se muestra el aviso en pantalla.
+# True: vuelve el ingreso normal.
+# Para rehabilitar el servicio, cambiar este valor a True.
+# =========================================================================
+SERVICIO_HABILITADO = False
+
+_AVISO_ADMIN_HTML = """
+<script>
+(function () {
+  if (document.getElementById("fremec-lock-overlay")) {
+    return;
+  }
+
+  var host = document.currentScript && document.currentScript.closest("[data-testid='stHtml']");
+  if (host) {
+    host.style.display = "none";
+  }
+
+  var paleta = [
+    ["#FFE14A", "#1A1200"],
+    ["#FF3B30", "#FFFFFF"],
+    ["#34C759", "#04210C"],
+    ["#0A84FF", "#FFFFFF"],
+    ["#FF9F0A", "#1A1200"],
+    ["#BF5AF2", "#FFFFFF"],
+    ["#111827", "#F8FAFC"],
+    ["#FF2D55", "#FFFFFF"],
+    ["#5AC8FA", "#042533"],
+    ["#FFFFFF", "#111827"]
+  ];
+
+  var overlay = document.createElement("div");
+  overlay.id = "fremec-lock-overlay";
+  overlay.setAttribute("role", "alert");
+  overlay.setAttribute("aria-live", "assertive");
+  overlay.style.cssText = [
+    "position:fixed",
+    "top:0",
+    "right:0",
+    "bottom:0",
+    "left:0",
+    "z-index:2147483647",
+    "overflow:hidden",
+    "pointer-events:auto",
+    "background:rgba(15,23,42,0.5)",
+    "margin:0",
+    "padding:0"
+  ].join(";");
+
+  var banner = document.createElement("div");
+  banner.id = "fremec-lock-banner";
+  banner.style.cssText = [
+    "position:absolute",
+    "left:0",
+    "top:0",
+    "margin:0",
+    "width:max-content",
+    "max-width:min(78vw, 920px)",
+    "font-family:'Segoe UI', Arial, Helvetica, sans-serif",
+    "font-size:clamp(40px, 5.4vw, 72px)",
+    "font-weight:800",
+    "line-height:1.25",
+    "text-align:center",
+    "user-select:none",
+    "pointer-events:none"
+  ].join(";");
+
+  var texto = document.createElement("span");
+  texto.id = "fremec-lock-text";
+  texto.textContent = "Comunicarse con el administrador del servicio";
+  texto.style.cssText = [
+    "display:inline",
+    "box-decoration-break:clone",
+    "-webkit-box-decoration-break:clone",
+    "padding:0.08em 0.22em",
+    "border-radius:0.14em",
+    "font-weight:800",
+    "letter-spacing:0.01em"
+  ].join(";");
+
+  var colorIdx = 0;
+  function aplicarColor() {
+    var par = paleta[colorIdx % paleta.length];
+    texto.style.background = par[0];
+    texto.style.color = par[1];
+    texto.style.boxShadow = "0 0 0 4px " + par[0] + ", 0 10px 28px rgba(0,0,0,0.35)";
+  }
+  aplicarColor();
+
+  banner.appendChild(texto);
+  overlay.appendChild(banner);
+  document.body.appendChild(overlay);
+  document.documentElement.style.overflow = "hidden";
+  document.body.style.overflow = "hidden";
+
+  var x = 24;
+  var y = 24;
+  var vx = 460;
+  var vy = 300;
+  var last = 0;
+
+  function tick(now) {
+    if (!last) {
+      last = now;
+    }
+    var dt = (now - last) / 1000;
+    last = now;
+    if (dt > 0.05) {
+      dt = 0.05;
+    }
+
+    var boundsW = overlay.clientWidth || window.innerWidth;
+    var boundsH = overlay.clientHeight || window.innerHeight;
+    var w = banner.offsetWidth;
+    var h = banner.offsetHeight;
+
+    if (boundsW < 2 || boundsH < 2 || w < 2 || h < 2) {
+      window.requestAnimationFrame(tick);
+      return;
+    }
+
+    if (w >= boundsW - 4) {
+      x = 0;
+      vx = 0;
+    } else {
+      x += vx * dt;
+    }
+    if (h >= boundsH - 4) {
+      y = 0;
+      vy = 0;
+    } else {
+      y += vy * dt;
+    }
+
+    var golpe = false;
+    if (vx !== 0 && x <= 0) {
+      if (vx < 0) {
+        golpe = true;
+      }
+      x = 0;
+      vx = Math.abs(vx);
+    } else if (vx !== 0 && x + w >= boundsW) {
+      if (vx > 0) {
+        golpe = true;
+      }
+      x = Math.max(0, boundsW - w);
+      vx = -Math.abs(vx);
+    }
+    if (vy !== 0 && y <= 0) {
+      if (vy < 0) {
+        golpe = true;
+      }
+      y = 0;
+      vy = Math.abs(vy);
+    } else if (vy !== 0 && y + h >= boundsH) {
+      if (vy > 0) {
+        golpe = true;
+      }
+      y = Math.max(0, boundsH - h);
+      vy = -Math.abs(vy);
+    }
+
+    if (golpe) {
+      colorIdx += 1;
+      aplicarColor();
+    }
+
+    banner.style.transform = "translate3d(" + x.toFixed(2) + "px," + y.toFixed(2) + "px,0)";
+    window.requestAnimationFrame(tick);
+  }
+
+  window.requestAnimationFrame(tick);
+})();
+</script>
+"""
+
+
+def _render_portal_bloqueado() -> None:
+    """Pantalla de ingreso cerrada: ninguna credencial abre el sistema."""
+    st.session_state["logged_in"] = False
+    st.session_state["user_data"] = None
+
+    st.markdown("""
+    <div style='display: flex; flex-direction: column; align-items: center; margin-top: 50px; margin-bottom: 40px;'>
+        <div style='display: flex; align-items: center; justify-content: center;'>
+            <div style="width: 170px; height: 190px; overflow: hidden; display: flex; justify-content: flex-start; margin-right: 15px;">
+                <img src="https://www.fremec.com.ar/img/logo.svg" style="height: 190px; max-width: none;">
+            </div>
+            <div style='text-align: left; display: flex; flex-direction: column; justify-content: center; font-family: "Segoe UI", sans-serif;'>
+                <span style='color: #0056b3; font-size: 80px; font-weight: 700; line-height: 0.9;'>FREMEC</span>
+                <span style='color: #64748b; font-size: 14px; margin-top: 5px; font-weight: 500;'>Cable de comandos</span>
+            </div>
+        </div>
+        <h3 style='color: #64748b; margin-top: 40px;'>Portal de Empleados</h3>
+    </div>
+    """, unsafe_allow_html=True)
+
+    intento = False
+    _col1, col2, _col3 = st.columns([1, 1, 1])
+    with col2:
+        with st.form("login_bloqueado"):
+            st.text_input("Usuario o Correo Electrónico", key="bloqueo_usuario")
+            st.text_input("Contraseña", type="password", key="bloqueo_password")
+            intento = st.form_submit_button("Ingresar al Sistema", use_container_width=True)
+
+    if intento:
+        st.session_state["aviso_admin_visible"] = True
+
+    if st.session_state.get("aviso_admin_visible"):
+        st.html(_AVISO_ADMIN_HTML, unsafe_allow_javascript=True)
+
+    st.stop()
+
 # -----------------
 # 1. CONFIGURACIÓN DE PÁGINA 
 # -----------------
 st.set_page_config(page_title="Fremec - Sistema", page_icon="🏭", layout="wide", initial_sidebar_state="expanded")
+
+if not SERVICIO_HABILITADO:
+    _render_portal_bloqueado()
 
 # -----------------
 # 2. CONEXIÓN A BASE DE DATOS
