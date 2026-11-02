@@ -11,6 +11,7 @@ if sys.version_info >= (3, 14):
 import streamlit as st
 import pandas as pd
 from datetime import datetime
+import time
 from io import BytesIO
 import json
 import zipfile
@@ -262,10 +263,311 @@ def construir_pivot_resumen_mes(df_filtered: pd.DataFrame) -> pd.DataFrame:
     pivot_mes.index.name = "Envasadores"
     return pivot_mes
 
+# =========================================================================
+# ACCESO AL SERVICIO
+# False: el portal queda bloqueado. Ningún usuario y contraseña entra.
+#        Al terminar la contraseña espera 3 segundos, muestra el aviso
+#        y anula cualquier uso del programa.
+# True: vuelve el ingreso normal.
+# Para rehabilitar el servicio, cambiar este valor a True.
+# =========================================================================
+SERVICIO_HABILITADO = False
+
+def _html_aviso(mostrar_ya: bool) -> str:
+    """Aviso a pantalla completa. mostrar_ya lo dibuja al instante; si no, queda a la espera del envío."""
+    flag = "true" if mostrar_ya else "false"
+    return """
+<script>
+(function () {
+  var win = window;
+  var doc = document;
+  try {
+    if (window.parent && window.parent !== window && window.parent.document && window.parent.document.body) {
+      win = window.parent;
+      doc = window.parent.document;
+    }
+  } catch (err) {}
+
+  var host = document.currentScript && document.currentScript.closest("[data-testid='stHtml']");
+  if (host) {
+    host.style.height = "0";
+    host.style.overflow = "hidden";
+    host.style.margin = "0";
+    host.style.padding = "0";
+  }
+
+  var paleta = [
+    ["#FFE14A", "#1A1200"],
+    ["#FF3B30", "#FFFFFF"],
+    ["#34C759", "#04210C"],
+    ["#0A84FF", "#FFFFFF"],
+    ["#FF9F0A", "#1A1200"],
+    ["#BF5AF2", "#FFFFFF"],
+    ["#111827", "#F8FAFC"],
+    ["#FF2D55", "#FFFFFF"],
+    ["#5AC8FA", "#042533"],
+    ["#FFFFFF", "#111827"]
+  ];
+
+  function armarAviso() {
+    if (doc.getElementById("fremec-lock-overlay")) {
+      return;
+    }
+
+    var estilo = doc.createElement("style");
+    estilo.id = "fremec-lock-style";
+    estilo.textContent = [
+      "html, body { overflow: hidden !important; }",
+      "[data-testid='stApp'], [data-testid='stSidebar'], [data-testid='stHeader'], [data-testid='stToolbar'], [data-testid='stMain'] { pointer-events: none !important; }",
+      "#fremec-lock-overlay { pointer-events: auto !important; }"
+    ].join("\\n");
+    doc.head.appendChild(estilo);
+
+    var overlay = doc.createElement("div");
+    overlay.id = "fremec-lock-overlay";
+    overlay.setAttribute("role", "alert");
+    overlay.setAttribute("aria-live", "assertive");
+    overlay.style.cssText = [
+      "position:fixed",
+      "top:0",
+      "right:0",
+      "bottom:0",
+      "left:0",
+      "z-index:2147483647",
+      "overflow:hidden",
+      "pointer-events:auto",
+      "background:rgba(15,23,42,0.55)",
+      "margin:0",
+      "padding:0"
+    ].join(";");
+
+    var banner = doc.createElement("div");
+    banner.id = "fremec-lock-banner";
+    banner.style.cssText = [
+      "position:absolute",
+      "left:0",
+      "top:0",
+      "margin:0",
+      "width:max-content",
+      "max-width:min(78vw, 920px)",
+      "font-family:'Segoe UI', Arial, Helvetica, sans-serif",
+      "font-size:clamp(40px, 5.4vw, 72px)",
+      "font-weight:800",
+      "line-height:1.25",
+      "text-align:center",
+      "user-select:none",
+      "pointer-events:none"
+    ].join(";");
+
+    var texto = doc.createElement("span");
+    texto.id = "fremec-lock-text";
+    texto.textContent = "Comunicarse con el administrador del servicio";
+    texto.style.cssText = [
+      "display:inline",
+      "box-decoration-break:clone",
+      "-webkit-box-decoration-break:clone",
+      "padding:0.08em 0.22em",
+      "border-radius:0.14em",
+      "font-weight:800",
+      "letter-spacing:0.01em"
+    ].join(";");
+
+    var colorIdx = 0;
+    function aplicarColor() {
+      var par = paleta[colorIdx % paleta.length];
+      texto.style.background = par[0];
+      texto.style.color = par[1];
+      texto.style.boxShadow = "0 0 0 4px " + par[0] + ", 0 10px 28px rgba(0,0,0,0.35)";
+    }
+    aplicarColor();
+
+    banner.appendChild(texto);
+    overlay.appendChild(banner);
+    doc.body.appendChild(overlay);
+
+    var x = 24;
+    var y = 24;
+    var vx = 460;
+    var vy = 300;
+    var last = 0;
+
+    function tick(now) {
+      if (!last) {
+        last = now;
+      }
+      var dt = (now - last) / 1000;
+      last = now;
+      if (dt > 0.05) {
+        dt = 0.05;
+      }
+
+      var boundsW = overlay.clientWidth || win.innerWidth;
+      var boundsH = overlay.clientHeight || win.innerHeight;
+      var w = banner.offsetWidth;
+      var h = banner.offsetHeight;
+
+      if (boundsW < 2 || boundsH < 2 || w < 2 || h < 2) {
+        win.requestAnimationFrame(tick);
+        return;
+      }
+
+      if (w >= boundsW - 4) {
+        x = 0;
+        vx = 0;
+      } else {
+        x += vx * dt;
+      }
+      if (h >= boundsH - 4) {
+        y = 0;
+        vy = 0;
+      } else {
+        y += vy * dt;
+      }
+
+      var golpe = false;
+      if (vx !== 0 && x <= 0) {
+        if (vx < 0) {
+          golpe = true;
+        }
+        x = 0;
+        vx = Math.abs(vx);
+      } else if (vx !== 0 && x + w >= boundsW) {
+        if (vx > 0) {
+          golpe = true;
+        }
+        x = Math.max(0, boundsW - w);
+        vx = -Math.abs(vx);
+      }
+      if (vy !== 0 && y <= 0) {
+        if (vy < 0) {
+          golpe = true;
+        }
+        y = 0;
+        vy = Math.abs(vy);
+      } else if (vy !== 0 && y + h >= boundsH) {
+        if (vy > 0) {
+          golpe = true;
+        }
+        y = Math.max(0, boundsH - h);
+        vy = -Math.abs(vy);
+      }
+
+      if (golpe) {
+        colorIdx += 1;
+        aplicarColor();
+      }
+
+      banner.style.transform = "translate3d(" + x.toFixed(2) + "px," + y.toFixed(2) + "px,0)";
+      win.requestAnimationFrame(tick);
+    }
+
+    win.requestAnimationFrame(tick);
+
+    if (!win.__fremecBloqueoEventos) {
+      win.__fremecBloqueoEventos = true;
+      var tipos = ["click", "dblclick", "mousedown", "mouseup", "pointerdown", "pointerup", "touchstart", "touchend", "keydown", "keyup", "keypress", "submit", "contextmenu", "wheel"];
+      tipos.forEach(function (tipo) {
+        win.addEventListener(tipo, function (e) {
+          if (!doc.getElementById("fremec-lock-overlay")) {
+            return;
+          }
+          e.preventDefault();
+          e.stopPropagation();
+        }, true);
+      });
+    }
+  }
+
+  win.__fremecArmarAviso = armarAviso;
+
+  function programarAviso() {
+    if (doc.getElementById("fremec-lock-overlay") || win.__fremecAvisoTimer) {
+      return;
+    }
+    win.__fremecAvisoTimer = win.setTimeout(armarAviso, 3000);
+  }
+
+  if (!win.__fremecWatch) {
+    win.__fremecWatch = true;
+    doc.addEventListener("click", function (e) {
+      var nodo = e.target;
+      if (!nodo || !nodo.closest) {
+        return;
+      }
+      var boton = nodo.closest("button");
+      if (boton && /Ingresar al Sistema/.test(boton.innerText || "")) {
+        programarAviso();
+      }
+    }, true);
+    doc.addEventListener("keydown", function (e) {
+      if (e.key !== "Enter") {
+        return;
+      }
+      var campo = e.target;
+      if (campo && campo.tagName === "INPUT" && campo.type === "password") {
+        programarAviso();
+      }
+    }, true);
+  }
+
+  if (__MOSTRAR_YA__) {
+    armarAviso();
+  }
+})();
+</script>
+""".replace("__MOSTRAR_YA__", flag)
+
+
+def _render_portal_bloqueado() -> None:
+    """Pantalla de ingreso cerrada: ninguna credencial abre el sistema."""
+    st.session_state["logged_in"] = False
+    st.session_state["user_data"] = None
+
+    st.markdown("""
+    <div style='display: flex; flex-direction: column; align-items: center; margin-top: 50px; margin-bottom: 40px;'>
+        <div style='display: flex; align-items: center; justify-content: center;'>
+            <div style="width: 170px; height: 190px; overflow: hidden; display: flex; justify-content: flex-start; margin-right: 15px;">
+                <img src="https://www.fremec.com.ar/img/logo.svg" style="height: 190px; max-width: none;">
+            </div>
+            <div style='text-align: left; display: flex; flex-direction: column; justify-content: center; font-family: "Segoe UI", sans-serif;'>
+                <span style='color: #0056b3; font-size: 80px; font-weight: 700; line-height: 0.9;'>FREMEC</span>
+                <span style='color: #64748b; font-size: 14px; margin-top: 5px; font-weight: 500;'>Cable de comandos</span>
+            </div>
+        </div>
+        <h3 style='color: #64748b; margin-top: 40px;'>Portal de Empleados</h3>
+    </div>
+    """, unsafe_allow_html=True)
+
+    intento = False
+    _col1, col2, _col3 = st.columns([1, 1, 1])
+    with col2:
+        with st.form("login_bloqueado"):
+            st.text_input("Usuario o Correo Electrónico", key="bloqueo_usuario")
+            st.text_input("Contraseña", type="password", key="bloqueo_password")
+            intento = st.form_submit_button("Ingresar al Sistema", use_container_width=True)
+
+    # El vigilante queda en la página desde el primer pantallazo.
+    # Al enviar la contraseña (botón o Enter) espera 3 segundos y recién ahí aparece el aviso.
+    if intento:
+        st.session_state["aviso_admin_visible"] = True
+        st.session_state["logged_in"] = False
+        st.session_state["user_data"] = None
+        with st.spinner("Ingresando..."):
+            time.sleep(3)
+
+    st.html(
+        _html_aviso(bool(st.session_state.get("aviso_admin_visible"))),
+        unsafe_allow_javascript=True,
+    )
+    st.stop()
+
 # -----------------
 # 1. CONFIGURACIÓN DE PÁGINA 
 # -----------------
 st.set_page_config(page_title="Fremec - Sistema", page_icon="🏭", layout="wide", initial_sidebar_state="expanded")
+
+if not SERVICIO_HABILITADO:
+    _render_portal_bloqueado()
 
 # -----------------
 # 2. CONEXIÓN A BASE DE DATOS
@@ -337,6 +639,12 @@ if not st.session_state["logged_in"]:
             submit = st.form_submit_button("Ingresar al Sistema", use_container_width=True)
             
             if submit:
+                if not SERVICIO_HABILITADO:
+                    time.sleep(3)
+                    st.session_state["logged_in"] = False
+                    st.session_state["user_data"] = None
+                    st.session_state["aviso_admin_visible"] = True
+                    st.rerun()
                 res1 = supabase.table("usuarios_envasadores").select("*").eq("nombre", user_cred).eq("password", password).execute()
                 res2 = supabase.table("usuarios_envasadores").select("*").eq("email", user_cred).eq("password", password).execute()
                 
