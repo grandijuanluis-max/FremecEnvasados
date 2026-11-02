@@ -387,8 +387,8 @@ def _html_aviso(mostrar_ya: bool) -> str:
 
     var x = 24;
     var y = 24;
-    var vx = 460;
-    var vy = 300;
+    var vx = 310;
+    var vy = 200;
     var last = 0;
 
     function tick(now) {
