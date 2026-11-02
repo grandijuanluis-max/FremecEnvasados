@@ -19,6 +19,7 @@ import xml.sax.saxutils as xml_escape
 import plotly.express as px
 
 from supabase_http import create_client, SupabaseHttpClient
+import seguridad
 
 
 def _excel_col_name(idx: int) -> str:
@@ -542,16 +543,18 @@ def _render_portal_bloqueado() -> None:
     _col1, col2, _col3 = st.columns([1, 1, 1])
     with col2:
         with st.form("login_bloqueado"):
-            st.text_input("Usuario o Correo Electrónico", key="bloqueo_usuario")
+            usuario_escrito = st.text_input("Usuario o Correo Electrónico", key="bloqueo_usuario")
             st.text_input("Contraseña", type="password", key="bloqueo_password")
             intento = st.form_submit_button("Ingresar al Sistema", use_container_width=True)
 
     # El vigilante queda en la página desde el primer pantallazo.
     # Al enviar la contraseña (botón o Enter) espera 3 segundos y recién ahí aparece el aviso.
     if intento:
+        seguridad.notificar_intento(usuario_escrito, False, "servicio bloqueado")
         st.session_state["aviso_admin_visible"] = True
         st.session_state["logged_in"] = False
         st.session_state["user_data"] = None
+        st.session_state["sesion_token"] = None
         with st.spinner("Ingresando..."):
             time.sleep(3)
 
@@ -595,16 +598,9 @@ except Exception as e:
 # FUNCIONES AUXILIARES DE AUDITORÍA
 # -----------------
 def registrar_auditoria(usuario, tabla, accion, descripcion):
-    """Envía un registro en tiempo real a la tabla auditoria."""
-    try:
-        supabase.table("auditoria").insert({
-            "usuario_accion": usuario,
-            "tabla_afectada": tabla,
-            "accion_realizada": accion,
-            "detalles": descripcion
-        }).execute()
-    except Exception as e:
-        print(f"Error escribiendo en auditoría: {e}")
+    """Deja constancia de la acción del usuario que tiene sesión."""
+    del usuario
+    seguridad.auditar(tabla, accion, descripcion)
 
 # Manejo de la Sesión
 if "user_data" not in st.session_state:
@@ -640,26 +636,29 @@ if not st.session_state["logged_in"]:
             
             if submit:
                 if not SERVICIO_HABILITADO:
+                    seguridad.notificar_intento(user_cred, False, "servicio bloqueado")
                     time.sleep(3)
                     st.session_state["logged_in"] = False
                     st.session_state["user_data"] = None
+                    st.session_state["sesion_token"] = None
                     st.session_state["aviso_admin_visible"] = True
                     st.rerun()
-                res1 = supabase.table("usuarios_envasadores").select("*").eq("nombre", user_cred).eq("password", password).execute()
-                res2 = supabase.table("usuarios_envasadores").select("*").eq("email", user_cred).eq("password", password).execute()
-                
-                usuario_valido = None
-                if res1.data:
-                    usuario_valido = res1.data[0]
-                elif res2.data:
-                    usuario_valido = res2.data[0]
-                
-                if usuario_valido:
+                try:
+                    ingreso = seguridad.iniciar_sesion(user_cred, password)
+                except Exception as error:
+                    seguridad.notificar_intento(user_cred, False, "error de acceso")
+                    st.error(f"No se pudo verificar el ingreso: {error}")
+                    ingreso = None
+
+                if isinstance(ingreso, dict) and ingreso.get("ok") and ingreso.get("usuario"):
                     st.session_state["logged_in"] = True
-                    st.session_state["user_data"] = usuario_valido
-                    registrar_auditoria(usuario_valido["nombre"], "sistema", "LOGIN", "El usuario inició sesión en el sistema.")
+                    st.session_state["sesion_token"] = ingreso.get("token")
+                    st.session_state["user_data"] = ingreso["usuario"]
+                    seguridad.notificar_intento(ingreso["usuario"].get("nombre") or user_cred, True, "ingreso correcto")
+                    registrar_auditoria(ingreso["usuario"].get("nombre"), "sistema", "LOGIN", "El usuario inició sesión en el sistema.")
                     st.rerun()
-                else:
+                elif ingreso is not None:
+                    seguridad.notificar_intento(user_cred, False, "credenciales incorrectas")
                     st.error("Credenciales incorrectas o usuario no existe.")
                     
     st.stop() 
@@ -667,7 +666,17 @@ if not st.session_state["logged_in"]:
 # =========================================================================
 # CONTEXTO DEL LOGUEADO
 # =========================================================================
-user_ctx = st.session_state["user_data"]
+try:
+    perfil = seguridad.perfil_actual()
+except Exception:
+    perfil = None
+if not perfil:
+    st.session_state["logged_in"] = False
+    st.session_state["user_data"] = None
+    st.session_state["sesion_token"] = None
+    st.rerun()
+st.session_state["user_data"] = perfil
+user_ctx = perfil
 es_admin = user_ctx.get("permiso_abm", False)
 # Convertimos permiso_bi a boolean seguro
 puede_bi = bool(user_ctx.get("permiso_bi", False))
@@ -676,8 +685,10 @@ nombre_activo = user_ctx["nombre"]
 
 def logout():
     registrar_auditoria(nombre_activo, "sistema", "LOGOUT", "Usuario cerró sesión.")
+    seguridad.cerrar_sesion()
     st.session_state["logged_in"] = False
     st.session_state["user_data"] = None
+    st.session_state["sesion_token"] = None
 
 # -----------------
 # ESTILOS UI NATIVA 
@@ -795,7 +806,7 @@ if nav_selection == "Gestión":
                             "permiso_envasado": p_envasado,
                             "permisos_nodb": p_nodb
                         }
-                        supabase.table("usuarios_envasadores").insert(data).execute()
+                        seguridad.crear_usuario(data)
                         registrar_auditoria(nombre_activo, "usuarios_envasadores", "ALTA", f"El admin creó al usuario: {u_nombre}.")
                         st.success("Usuario registrado.")
                     except Exception as e:
@@ -803,9 +814,9 @@ if nav_selection == "Gestión":
     
     st.markdown("### Usuarios en la Nube (Administración Completa)")
     try:
-        response = supabase.table("usuarios_envasadores").select("*").order("id").execute()
-        if response.data:
-            df_users = pd.DataFrame(response.data)
+        usuarios = seguridad.listar_usuarios()
+        if usuarios:
+            df_users = pd.DataFrame(usuarios)
             
             # Asegurar la columna permisos_nodb de forma defensiva si no viene de BD
             if 'permisos_nodb' not in df_users.columns:
@@ -835,14 +846,14 @@ if nav_selection == "Gestión":
                 for row_idx in st.session_state["abm_editor"]["deleted_rows"]:
                     uid = int(display_df.iloc[row_idx]['id'])
                     uname = display_df.iloc[row_idx]['nombre']
-                    supabase.table("usuarios_envasadores").delete().eq("id", uid).execute()
+                    seguridad.eliminar_usuario(uid)
                     registrar_auditoria(nombre_activo, "usuarios_envasadores", "BAJA", f"Se eliminó permanentemente al usuario: {uname}.")
                     cambios = True
                         
                 for row_idx, changed_data in st.session_state["abm_editor"]["edited_rows"].items():
                     uid = int(display_df.iloc[int(row_idx)]['id'])
                     uname = display_df.iloc[int(row_idx)]['nombre']
-                    supabase.table("usuarios_envasadores").update(changed_data).eq("id", uid).execute()
+                    seguridad.actualizar_usuario(uid, changed_data)
                     registrar_auditoria(nombre_activo, "usuarios_envasadores", "MODIFICACION", f"Modificación al usuario {uname}. Detalle JSON: {json.dumps(changed_data)}")
                     cambios = True
                     
@@ -857,7 +868,7 @@ if nav_selection == "Gestión":
                             "permiso_envasado": new_row.get("permiso_envasado", False),
                             "permisos_nodb": new_row.get("permisos_nodb", False),
                         }
-                        supabase.table("usuarios_envasadores").insert(new_data).execute()
+                        seguridad.crear_usuario(new_data)
                         cambios = True
                 
                 if cambios:
@@ -918,7 +929,7 @@ elif nav_selection == "Envasado":
                         fecha_str = r_fecha.strftime("%d/%m/%Y")
                         data = {"nombre_envasador": nombre_activo, "fecha": fecha_str, "cantidad": r_cantidad, "observaciones": r_obs}
                         try:
-                            supabase.table("registros_envasado").insert(data).execute()
+                            seguridad.crear_registro(data)
                             registrar_auditoria(nombre_activo, "registros_envasado", "ALTA", f"Cargó {r_cantidad} unds producidas.")
                             
                             # Incrementamos el contador para generar nuevas keys y resetear los widgets
@@ -932,9 +943,9 @@ elif nav_selection == "Envasado":
 
     st.markdown("### Historial de Registros")
     try:
-        response = supabase.table("registros_envasado").select("*").order("id", desc=True).execute()
-        if response.data:
-            df_registros = pd.DataFrame(response.data)
+        registros = seguridad.listar_registros()
+        if registros:
+            df_registros = pd.DataFrame(registros)
             
             if es_admin:
                 st.info("⚡ Tienes permisos de Administrador: Puedes auditar, modificar o borrar los registros históricos tocando en las celdas.")
@@ -951,13 +962,13 @@ elif nav_selection == "Envasado":
                         reg_id = int(display_reg.iloc[r_idx]['id'])
                         old_op = display_reg.iloc[r_idx]['nombre_envasador']
                         old_date = display_reg.iloc[r_idx]['fecha']
-                        supabase.table("registros_envasado").delete().eq("id", reg_id).execute()
+                        seguridad.eliminar_registro(reg_id)
                         registrar_auditoria(nombre_activo, "registros_envasado", "BAJA_ADMINISTRATIVA", f"Eliminó el registro de producción de {old_op} del {old_date}")
                         hubo_cambios = True
 
                     for r_idx, c_data in st.session_state["reg_editor"]["edited_rows"].items():
                         reg_id = int(display_reg.iloc[int(r_idx)]['id'])
-                        supabase.table("registros_envasado").update(c_data).eq("id", reg_id).execute()
+                        seguridad.actualizar_registro(reg_id, c_data)
                         registrar_auditoria(nombre_activo, "registros_envasado", "MODIFICACION_ADMINISTRATIVA", f"Alteró la producción con ID {reg_id}. Detalle: {json.dumps(c_data)}")
                         hubo_cambios = True
                     
@@ -985,16 +996,16 @@ elif nav_selection == "BI":
     try:
         # Obtener los usuarios que tienen marcado "No mostrar en Dashboard" (permisos_nodb = True)
         try:
-            res_excluidos = supabase.table("usuarios_envasadores").select("nombre").eq("permisos_nodb", True).execute()
-            nombres_excluidos = [u["nombre"] for u in res_excluidos.data] if res_excluidos.data else []
+            excluidos = seguridad.nombres_excluidos()
+            nombres_excluidos = [nombre for nombre in excluidos if nombre]
         except Exception as e:
             nombres_excluidos = []
             st.warning("⚠️ Nota: No se pudo verificar la exclusión de usuarios en el dashboard (¿Columna 'permisos_nodb' pendiente en la base de datos?)")
             
         # Descargar la BD entera y tratarla analíticamente en memoria
-        response = supabase.table("registros_envasado").select("*").execute()
-        if response.data:
-            df_bi = pd.DataFrame(response.data)
+        registros_bi = seguridad.listar_registros()
+        if registros_bi:
+            df_bi = pd.DataFrame(registros_bi)
             # Excluir registros de producción de los usuarios tildados
             if nombres_excluidos:
                 df_bi = df_bi[~df_bi['nombre_envasador'].isin(nombres_excluidos)]
