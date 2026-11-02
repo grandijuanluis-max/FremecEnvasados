@@ -107,5 +107,31 @@ class SupabaseHttpClient:
             raise RuntimeError(err_body) from e
 
 
+    def rpc(self, fn: str, params: dict | None = None):
+        """Llama una función de Postgres. No lee tablas directo."""
+        url = f"{self.url}/rest/v1/rpc/{urllib.parse.quote(fn)}"
+        headers = {
+            "apikey": self.key,
+            "Authorization": f"Bearer {self.key}",
+            "Content-Type": "application/json",
+        }
+        def _json_default(valor):
+            if hasattr(valor, "item"):
+                return valor.item()
+            raise TypeError(type(valor).__name__)
+
+        data = json.dumps(params or {}, default=_json_default).encode()
+        req = urllib.request.Request(url, data=data, method="POST", headers=headers)
+        try:
+            with urllib.request.urlopen(req, timeout=60) as resp:
+                raw = resp.read().decode()
+                if not raw:
+                    return None
+                return json.loads(raw)
+        except urllib.error.HTTPError as e:
+            err_body = e.read().decode()
+            raise RuntimeError(err_body) from e
+
+
 def create_client(url: str, key: str) -> SupabaseHttpClient:
     return SupabaseHttpClient(url, key)
